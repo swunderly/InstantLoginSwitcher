@@ -64,6 +64,11 @@ You should see both tasks present.
   - In the same PowerShell window, run: `Set-ExecutionPolicy -Scope Process Bypass -Force`
   - If you downloaded a ZIP, also run: `Get-ChildItem .\*.ps1 | Unblock-File`
   - Then run setup again.
+- **"No mapping between account names and security IDs" during setup**:
+  - This means Windows could not resolve one of the usernames for task registration.
+  - Run setup again using machine-qualified usernames:
+    - `.\Setup-InstantLoginSwitcher.ps1 -PrimaryUser "$env:COMPUTERNAME\Samuel Wunderly" -SecondaryUser "$env:COMPUTERNAME\Lizzy Wunderly"`
+  - If a partial install already happened, run `.\Setup-InstantLoginSwitcher.ps1 -Uninstall` first, then reinstall.
 - **Hotkey does nothing**:
   - Check task exists with `schtasks /Query /TN "InstantLoginSwitcher-Hotkey-<User_With_Underscores>"`.
   - Open Task Scheduler and confirm Last Run Result is `0x0`.

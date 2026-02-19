@@ -25,6 +25,32 @@ function Remove-TaskIfExists {
     }
 }
 
+
+function Resolve-AccountName {
+    param([Parameter(Mandatory)][string]$AccountName)
+
+    if ($AccountName.Contains('\') -or $AccountName.Contains('@')) {
+        return $AccountName
+    }
+
+    $candidates = @(
+        "$env:COMPUTERNAME\$AccountName",
+        ".\$AccountName"
+    )
+
+    foreach ($candidate in $candidates) {
+        try {
+            $null = ([System.Security.Principal.NTAccount]$candidate).Translate([System.Security.Principal.SecurityIdentifier])
+            return $candidate
+        }
+        catch {
+            continue
+        }
+    }
+
+    throw "Could not resolve account '$AccountName'. Try using '$env:COMPUTERNAME\$AccountName'."
+}
+
 if (-not (Test-Admin)) {
     throw 'Run this setup script in an elevated PowerShell session (Run as Administrator).'
 }
@@ -70,6 +96,9 @@ Import-Module (Join-Path $PSScriptRoot 'CredentialStore.psm1') -Force
 $primaryPassword = Read-Host "Password for $PrimaryUser" -AsSecureString
 $secondaryPassword = Read-Host "Password for $SecondaryUser" -AsSecureString
 
+$primaryTaskUser = Resolve-AccountName -AccountName $PrimaryUser
+$secondaryTaskUser = Resolve-AccountName -AccountName $SecondaryUser
+
 Write-StoredCredential -Target "InstantLoginSwitcher:$PrimaryUser" -UserName $PrimaryUser -Password $primaryPassword
 Write-StoredCredential -Target "InstantLoginSwitcher:$SecondaryUser" -UserName $SecondaryUser -Password $secondaryPassword
 
@@ -95,12 +124,12 @@ try {
     $secondaryTaskName = "$taskNameBase-$($SecondaryUser.Replace(' ','_'))"
 
     $action = New-ScheduledTaskAction -Execute $ahkExe -Argument ('"{0}"' -f $ahkScriptPath)
-    $primaryTrigger = New-ScheduledTaskTrigger -AtLogOn -User $PrimaryUser
-    $secondaryTrigger = New-ScheduledTaskTrigger -AtLogOn -User $SecondaryUser
+    $primaryTrigger = New-ScheduledTaskTrigger -AtLogOn -User $primaryTaskUser
+    $secondaryTrigger = New-ScheduledTaskTrigger -AtLogOn -User $secondaryTaskUser
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 
-    Register-ScheduledTask -TaskName $primaryTaskName -Action $action -Trigger $primaryTrigger -Settings $settings -RunLevel Highest -User $PrimaryUser -Password $plainPrimary -Force | Out-Null
-    Register-ScheduledTask -TaskName $secondaryTaskName -Action $action -Trigger $secondaryTrigger -Settings $settings -RunLevel Highest -User $SecondaryUser -Password $plainSecondary -Force | Out-Null
+    Register-ScheduledTask -TaskName $primaryTaskName -Action $action -Trigger $primaryTrigger -Settings $settings -RunLevel Highest -User $primaryTaskUser -Password $plainPrimary -Force -ErrorAction Stop | Out-Null
+    Register-ScheduledTask -TaskName $secondaryTaskName -Action $action -Trigger $secondaryTrigger -Settings $settings -RunLevel Highest -User $secondaryTaskUser -Password $plainSecondary -Force -ErrorAction Stop | Out-Null
 }
 finally {
     if ($plainPrimaryBstr -and $plainPrimaryBstr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($plainPrimaryBstr) }
@@ -109,5 +138,6 @@ finally {
     $plainSecondary = $null
 }
 
+Write-Host "Scheduled task users: $primaryTaskUser and $secondaryTaskUser"
 Write-Host 'InstantLoginSwitcher is installed.'
 Write-Host 'Hotkey: Numpad4 + Numpad5 + Numpad6'
