@@ -31,7 +31,7 @@ To perform automatic sign-in after logout, Windows AutoAdminLogon registry keys 
 4. Run:
 
 ```powershell
-Set-ExecutionPolicy -Scope Process Bypass
+Set-ExecutionPolicy -Scope Process Bypass -Force
 cd C:\Tools\InstantLoginSwitcher\scripts
 .\Setup-InstantLoginSwitcher.ps1 -PrimaryUser "Samuel Wunderly" -SecondaryUser "Lizzy Wunderly"
 ```
@@ -60,6 +60,10 @@ You should see both tasks present.
 
 - **AutoHotkey not found**:
   - Reinstall AutoHotkey v2, then rerun setup.
+- **Script is not digitally signed / PSSecurityException**:
+  - In the same PowerShell window, run: `Set-ExecutionPolicy -Scope Process Bypass -Force`
+  - If you downloaded a ZIP, also run: `Get-ChildItem .\*.ps1 | Unblock-File`
+  - Then run setup again.
 - **Hotkey does nothing**:
   - Check task exists with `schtasks /Query /TN "InstantLoginSwitcher-Hotkey-<User_With_Underscores>"`.
   - Open Task Scheduler and confirm Last Run Result is `0x0`.
