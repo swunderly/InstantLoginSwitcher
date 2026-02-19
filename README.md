@@ -65,9 +65,10 @@ You should see both tasks present.
   - If you downloaded a ZIP, also run: `Get-ChildItem .\*.ps1 | Unblock-File`
   - Then run setup again.
 - **"No mapping between account names and security IDs" during setup**:
-  - This means Windows could not resolve one of the usernames for task registration.
-  - Run setup again using machine-qualified usernames:
-    - `.\Setup-InstantLoginSwitcher.ps1 -PrimaryUser "$env:COMPUTERNAME\Samuel Wunderly" -SecondaryUser "$env:COMPUTERNAME\Lizzy Wunderly"`
+  - You are likely using the account **Full Name** instead of the account **Name**.
+  - Check account names with: `Get-LocalUser | Select Name, FullName`
+  - Re-run using Name values (example):
+    - `.\Setup-InstantLoginSwitcher.ps1 -PrimaryUser "samuel" -SecondaryUser "lizzy"`
   - If a partial install already happened, run `.\Setup-InstantLoginSwitcher.ps1 -Uninstall` first, then reinstall.
 - **Hotkey does nothing**:
   - Check task exists with `schtasks /Query /TN "InstantLoginSwitcher-Hotkey-<User_With_Underscores>"`.

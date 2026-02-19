@@ -25,30 +25,33 @@ function Remove-TaskIfExists {
     }
 }
 
+function Resolve-LocalAccount {
+    param([Parameter(Mandatory)][string]$InputName)
 
-function Resolve-AccountName {
-    param([Parameter(Mandatory)][string]$AccountName)
-
-    if ($AccountName.Contains('\') -or $AccountName.Contains('@')) {
-        return $AccountName
+    $machine = $env:COMPUTERNAME
+    $candidate = $InputName
+    if ($candidate.Contains('\')) {
+        $parts = $candidate.Split('\', 2)
+        $candidate = $parts[1]
     }
 
-    $candidates = @(
-        "$env:COMPUTERNAME\$AccountName",
-        ".\$AccountName"
-    )
+    $localUsers = Get-LocalUser
 
-    foreach ($candidate in $candidates) {
-        try {
-            $null = ([System.Security.Principal.NTAccount]$candidate).Translate([System.Security.Principal.SecurityIdentifier])
-            return $candidate
-        }
-        catch {
-            continue
-        }
+    $matched = $localUsers | Where-Object { $_.Name -eq $candidate } | Select-Object -First 1
+    if (-not $matched) {
+        $matched = $localUsers | Where-Object { $_.FullName -eq $candidate } | Select-Object -First 1
     }
 
-    throw "Could not resolve account '$AccountName'. Try using '$env:COMPUTERNAME\$AccountName'."
+    if (-not $matched) {
+        throw "Could not find a local account matching '$InputName'. Run 'Get-LocalUser | Select Name, FullName' and use the Name value."
+    }
+
+    [pscustomobject]@{
+        InputName = $InputName
+        UserName  = $matched.Name
+        FullName  = $matched.FullName
+        Qualified = "$machine\$($matched.Name)"
+    }
 }
 
 if (-not (Test-Admin)) {
@@ -58,10 +61,10 @@ if (-not (Test-Admin)) {
 if ($Uninstall) {
     $knownTasks = @()
     if ($PrimaryUser) {
-        $knownTasks += "$taskNameBase-$($PrimaryUser.Replace(' ','_'))"
+        $knownTasks += "$taskNameBase-$($PrimaryUser.Replace(' ','_').Replace('\\','_'))"
     }
     if ($SecondaryUser) {
-        $knownTasks += "$taskNameBase-$($SecondaryUser.Replace(' ','_'))"
+        $knownTasks += "$taskNameBase-$($SecondaryUser.Replace(' ','_').Replace('\\','_'))"
     }
 
     if ($knownTasks.Count -eq 0) {
@@ -86,6 +89,9 @@ if ([string]::IsNullOrWhiteSpace($PrimaryUser) -or [string]::IsNullOrWhiteSpace(
     throw 'Both -PrimaryUser and -SecondaryUser are required unless using -Uninstall.'
 }
 
+$primaryAccount = Resolve-LocalAccount -InputName $PrimaryUser
+$secondaryAccount = Resolve-LocalAccount -InputName $SecondaryUser
+
 $ahkExe = Join-Path ${env:ProgramFiles} 'AutoHotkey\v2\AutoHotkey64.exe'
 if (-not (Test-Path $ahkExe)) {
     throw "AutoHotkey v2 not found at '$ahkExe'. Install AutoHotkey v2 first."
@@ -93,21 +99,18 @@ if (-not (Test-Path $ahkExe)) {
 
 Import-Module (Join-Path $PSScriptRoot 'CredentialStore.psm1') -Force
 
-$primaryPassword = Read-Host "Password for $PrimaryUser" -AsSecureString
-$secondaryPassword = Read-Host "Password for $SecondaryUser" -AsSecureString
+$primaryPassword = Read-Host "Password for $($primaryAccount.Qualified)" -AsSecureString
+$secondaryPassword = Read-Host "Password for $($secondaryAccount.Qualified)" -AsSecureString
 
-$primaryTaskUser = Resolve-AccountName -AccountName $PrimaryUser
-$secondaryTaskUser = Resolve-AccountName -AccountName $SecondaryUser
-
-Write-StoredCredential -Target "InstantLoginSwitcher:$PrimaryUser" -UserName $PrimaryUser -Password $primaryPassword
-Write-StoredCredential -Target "InstantLoginSwitcher:$SecondaryUser" -UserName $SecondaryUser -Password $secondaryPassword
+Write-StoredCredential -Target "InstantLoginSwitcher:$($primaryAccount.UserName)" -UserName $primaryAccount.Qualified -Password $primaryPassword
+Write-StoredCredential -Target "InstantLoginSwitcher:$($secondaryAccount.UserName)" -UserName $secondaryAccount.Qualified -Password $secondaryPassword
 
 New-Item -Path $installDir -ItemType Directory -Force | Out-Null
 Copy-Item -Path (Join-Path $PSScriptRoot 'Switch-Login.ps1') -Destination (Join-Path $installDir 'Switch-Login.ps1') -Force
 Copy-Item -Path (Join-Path $PSScriptRoot 'CredentialStore.psm1') -Destination (Join-Path $installDir 'CredentialStore.psm1') -Force
 
 $template = Get-Content (Join-Path $PSScriptRoot 'InstantLoginSwitcher.ahk') -Raw
-$template = $template.Replace('__PRIMARY_USER__', $PrimaryUser).Replace('__SECONDARY_USER__', $SecondaryUser)
+$template = $template.Replace('__PRIMARY_USER__', $primaryAccount.UserName).Replace('__SECONDARY_USER__', $secondaryAccount.UserName)
 $ahkScriptPath = Join-Path $installDir 'InstantLoginSwitcher.ahk'
 Set-Content -Path $ahkScriptPath -Value $template -Encoding UTF8
 
@@ -120,16 +123,16 @@ try {
     $plainPrimary = [Runtime.InteropServices.Marshal]::PtrToStringUni($plainPrimaryBstr)
     $plainSecondary = [Runtime.InteropServices.Marshal]::PtrToStringUni($plainSecondaryBstr)
 
-    $primaryTaskName = "$taskNameBase-$($PrimaryUser.Replace(' ','_'))"
-    $secondaryTaskName = "$taskNameBase-$($SecondaryUser.Replace(' ','_'))"
+    $primaryTaskName = "$taskNameBase-$($primaryAccount.UserName.Replace(' ','_'))"
+    $secondaryTaskName = "$taskNameBase-$($secondaryAccount.UserName.Replace(' ','_'))"
 
     $action = New-ScheduledTaskAction -Execute $ahkExe -Argument ('"{0}"' -f $ahkScriptPath)
-    $primaryTrigger = New-ScheduledTaskTrigger -AtLogOn -User $primaryTaskUser
-    $secondaryTrigger = New-ScheduledTaskTrigger -AtLogOn -User $secondaryTaskUser
+    $primaryTrigger = New-ScheduledTaskTrigger -AtLogOn -User $primaryAccount.Qualified
+    $secondaryTrigger = New-ScheduledTaskTrigger -AtLogOn -User $secondaryAccount.Qualified
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 
-    Register-ScheduledTask -TaskName $primaryTaskName -Action $action -Trigger $primaryTrigger -Settings $settings -RunLevel Highest -User $primaryTaskUser -Password $plainPrimary -Force -ErrorAction Stop | Out-Null
-    Register-ScheduledTask -TaskName $secondaryTaskName -Action $action -Trigger $secondaryTrigger -Settings $settings -RunLevel Highest -User $secondaryTaskUser -Password $plainSecondary -Force -ErrorAction Stop | Out-Null
+    Register-ScheduledTask -TaskName $primaryTaskName -Action $action -Trigger $primaryTrigger -Settings $settings -RunLevel Highest -User $primaryAccount.Qualified -Password $plainPrimary -Force -ErrorAction Stop | Out-Null
+    Register-ScheduledTask -TaskName $secondaryTaskName -Action $action -Trigger $secondaryTrigger -Settings $settings -RunLevel Highest -User $secondaryAccount.Qualified -Password $plainSecondary -Force -ErrorAction Stop | Out-Null
 }
 finally {
     if ($plainPrimaryBstr -and $plainPrimaryBstr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($plainPrimaryBstr) }
@@ -138,6 +141,7 @@ finally {
     $plainSecondary = $null
 }
 
-Write-Host "Scheduled task users: $primaryTaskUser and $secondaryTaskUser"
+Write-Host "Resolved primary account: $($primaryAccount.Qualified)"
+Write-Host "Resolved secondary account: $($secondaryAccount.Qualified)"
 Write-Host 'InstantLoginSwitcher is installed.'
 Write-Host 'Hotkey: Numpad4 + Numpad5 + Numpad6'
