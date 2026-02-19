@@ -7,6 +7,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+$root = Split-Path -Parent $PSScriptRoot
 $installDir = Join-Path $env:ProgramData 'InstantLoginSwitcher'
 $taskNameBase = 'InstantLoginSwitcher-Hotkey'
 
@@ -14,15 +15,6 @@ function Test-Admin {
     $current = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = New-Object Security.Principal.WindowsPrincipal($current)
     return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-}
-
-function Remove-TaskIfExists {
-    param([Parameter(Mandatory)][string]$TaskName)
-
-    $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-    if ($existing) {
-        Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
-    }
 }
 
 if (-not (Test-Admin)) {
@@ -39,13 +31,13 @@ if ($Uninstall) {
     }
 
     if ($knownTasks.Count -eq 0) {
-        $knownTasks += (Get-ScheduledTask -ErrorAction SilentlyContinue |
-            Where-Object { $_.TaskName -like "$taskNameBase-*" } |
-            Select-Object -ExpandProperty TaskName)
+        $knownTasks += (schtasks.exe /Query /FO LIST /V 2>$null |
+            Where-Object { $_ -like 'TaskName:*' -and $_ -like "*$taskNameBase-*" } |
+            ForEach-Object { ($_ -split ':', 2)[1].Trim() })
     }
 
     foreach ($taskName in $knownTasks | Select-Object -Unique) {
-        Remove-TaskIfExists -TaskName $taskName
+        schtasks.exe /Delete /TN $taskName /F *> $null
     }
 
     if (Test-Path $installDir) {
@@ -82,32 +74,21 @@ $template = $template.Replace('__PRIMARY_USER__', $PrimaryUser).Replace('__SECON
 $ahkScriptPath = Join-Path $installDir 'InstantLoginSwitcher.ahk'
 Set-Content -Path $ahkScriptPath -Value $template -Encoding UTF8
 
-$plainPrimaryBstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($primaryPassword)
-$plainSecondaryBstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secondaryPassword)
-$plainPrimary = $null
-$plainSecondary = $null
+$runCommand = '"{0}" "{1}"' -f $ahkExe, $ahkScriptPath
+
+$plainPrimary = [Runtime.InteropServices.Marshal]::PtrToStringUni([Runtime.InteropServices.Marshal]::SecureStringToBSTR($primaryPassword))
+$plainSecondary = [Runtime.InteropServices.Marshal]::PtrToStringUni([Runtime.InteropServices.Marshal]::SecureStringToBSTR($secondaryPassword))
 
 try {
-    $plainPrimary = [Runtime.InteropServices.Marshal]::PtrToStringUni($plainPrimaryBstr)
-    $plainSecondary = [Runtime.InteropServices.Marshal]::PtrToStringUni($plainSecondaryBstr)
-
     $primaryTaskName = "$taskNameBase-$($PrimaryUser.Replace(' ','_'))"
     $secondaryTaskName = "$taskNameBase-$($SecondaryUser.Replace(' ','_'))"
-
-    $action = New-ScheduledTaskAction -Execute $ahkExe -Argument ('"{0}"' -f $ahkScriptPath)
-    $primaryTrigger = New-ScheduledTaskTrigger -AtLogOn -User $PrimaryUser
-    $secondaryTrigger = New-ScheduledTaskTrigger -AtLogOn -User $SecondaryUser
-    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
-
-    Register-ScheduledTask -TaskName $primaryTaskName -Action $action -Trigger $primaryTrigger -Settings $settings -RunLevel Highest -User $PrimaryUser -Password $plainPrimary -Force | Out-Null
-    Register-ScheduledTask -TaskName $secondaryTaskName -Action $action -Trigger $secondaryTrigger -Settings $settings -RunLevel Highest -User $SecondaryUser -Password $plainSecondary -Force | Out-Null
+    schtasks.exe /Create /TN $primaryTaskName /SC ONLOGON /RL HIGHEST /RU $PrimaryUser /RP $plainPrimary /TR $runCommand /F | Out-Null
+    schtasks.exe /Create /TN $secondaryTaskName /SC ONLOGON /RL HIGHEST /RU $SecondaryUser /RP $plainSecondary /TR $runCommand /F | Out-Null
 }
 finally {
-    if ($plainPrimaryBstr -and $plainPrimaryBstr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($plainPrimaryBstr) }
-    if ($plainSecondaryBstr -and $plainSecondaryBstr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($plainSecondaryBstr) }
-    $plainPrimary = $null
-    $plainSecondary = $null
+    if ($plainPrimary) { $plainPrimary = $null }
+    if ($plainSecondary) { $plainSecondary = $null }
 }
 
 Write-Host 'InstantLoginSwitcher is installed.'
-Write-Host 'Hotkey: Numpad4 + Numpad5 + Numpad6'
+Write-Host "Hotkey: Numpad4 + Numpad5 + Numpad6"
