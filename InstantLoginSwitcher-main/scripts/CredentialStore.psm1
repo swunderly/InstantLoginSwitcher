@@ -29,6 +29,9 @@ public static class NativeCred {
 
     [DllImport("advapi32", SetLastError=true, CharSet=CharSet.Unicode)]
     public static extern bool CredWrite([In] ref CREDENTIAL userCredential, [In] uint flags);
+
+    [DllImport("advapi32", SetLastError=true, CharSet=CharSet.Unicode)]
+    public static extern bool CredDelete(string target, int type, int flags);
 }
 "@
 
@@ -102,4 +105,17 @@ function Read-StoredCredential {
     }
 }
 
-Export-ModuleMember -Function Write-StoredCredential, Read-StoredCredential
+function Remove-StoredCredential {
+    param(
+        [Parameter(Mandatory)] [string]$Target
+    )
+
+    if (-not [NativeCred]::CredDelete($Target, 1, 0)) {
+        $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+        if ($errorCode -ne 1168) {
+            throw "CredDelete failed for target '$Target' with code $errorCode"
+        }
+    }
+}
+
+Export-ModuleMember -Function Write-StoredCredential, Read-StoredCredential, Remove-StoredCredential

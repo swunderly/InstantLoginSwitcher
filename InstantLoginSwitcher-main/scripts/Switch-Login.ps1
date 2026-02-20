@@ -7,13 +7,43 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-Import-Module (Join-Path $PSScriptRoot 'CredentialStore.psm1') -Force
+$logPath = $null
+try {
+    $logDir = Join-Path $env:ProgramData 'InstantLoginSwitcher'
+    New-Item -Path $logDir -ItemType Directory -Force -ErrorAction Stop | Out-Null
+    $logPath = Join-Path $logDir 'switch.log'
+}
+catch {
+    # Logging is optional; failures here should not block the switch flow.
+}
+
+function Write-Log {
+    param([Parameter(Mandatory)][string]$Message)
+
+    if (-not $logPath) {
+        return
+    }
+
+    try {
+        $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+        Add-Content -LiteralPath $logPath -Value "$timestamp $Message" -Encoding UTF8
+    }
+    catch {
+        # no-op
+    }
+}
+
+function Test-Admin {
+    $current = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object Security.Principal.WindowsPrincipal($current)
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
 
 function Set-AutoLogon {
     param(
-        [string]$UserName,
-        [string]$Password,
-        [string]$Domain
+        [Parameter(Mandatory)][string]$UserName,
+        [Parameter(Mandatory)][string]$Password,
+        [Parameter(Mandatory)][string]$Domain
     )
 
     $path = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
@@ -23,28 +53,54 @@ function Set-AutoLogon {
     Set-ItemProperty -Path $path -Name 'DefaultDomainName' -Value $Domain -Type String
 }
 
-$currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name.Split('\\')[-1]
-if ($currentUser -eq $PrimaryUser) {
-    $targetUser = $SecondaryUser
-}
-elseif ($currentUser -eq $SecondaryUser) {
-    $targetUser = $PrimaryUser
-}
-else {
-    throw "Current user '$currentUser' is not part of configured switch pair."
-}
+try {
+    Import-Module (Join-Path $PSScriptRoot 'CredentialStore.psm1') -Force
 
-$target = "InstantLoginSwitcher:$targetUser"
-$cred = Read-StoredCredential -Target $target
-Set-AutoLogon -UserName $targetUser -Password $cred.Password -Domain $MachineName
+    $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name.Split('\\')[-1]
+    Write-Log "Switch requested by $currentUser."
 
-$sessionId = (Get-Process -Id $PID).SessionId
-$exclude = @('Idle','System','Registry','csrss','wininit','winlogon','services','lsass','smss','svchost','dwm','fontdrvhost','sihost','ctfmon','explorer','taskhostw','ShellExperienceHost','StartMenuExperienceHost','RuntimeBroker')
-Get-Process | Where-Object {
-    $_.SessionId -eq $sessionId -and $_.Id -ne $PID -and $exclude -notcontains $_.ProcessName
-} | ForEach-Object {
-    Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+    if (-not (Test-Admin)) {
+        throw "Current user '$currentUser' is not running with administrative privileges."
+    }
+
+    if ($currentUser -eq $PrimaryUser) {
+        $targetUser = $SecondaryUser
+    }
+    elseif ($currentUser -eq $SecondaryUser) {
+        $targetUser = $PrimaryUser
+    }
+    else {
+        throw "Current user '$currentUser' is not part of configured switch pair."
+    }
+
+    $target = "InstantLoginSwitcher:$targetUser"
+    $cred = Read-StoredCredential -Target $target
+    if ([string]::IsNullOrEmpty($cred.Password)) {
+        throw "No password was found in Credential Manager for target '$target'."
+    }
+
+    Set-AutoLogon -UserName $targetUser -Password $cred.Password -Domain $MachineName
+    Write-Log "AutoAdminLogon configured for '$targetUser'."
+
+    $sessionId = (Get-Process -Id $PID).SessionId
+    $exclude = @(
+        'Idle','System','Registry','csrss','wininit','winlogon','services','lsass','smss',
+        'svchost','dwm','fontdrvhost','sihost','ctfmon','explorer','taskhostw',
+        'ShellExperienceHost','StartMenuExperienceHost','RuntimeBroker','AutoHotkey',
+        'AutoHotkey64'
+    )
+
+    Get-Process | Where-Object {
+        $_.SessionId -eq $sessionId -and $_.Id -ne $PID -and $exclude -notcontains $_.ProcessName
+    } | ForEach-Object {
+        Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+    }
+
+    Write-Log "Logging out current user '$currentUser'."
+    Start-Sleep -Milliseconds 250
+    Start-Process -FilePath shutdown.exe -ArgumentList '/l /f' -WindowStyle Hidden
 }
-
-Start-Sleep -Milliseconds 250
-Start-Process -FilePath shutdown.exe -ArgumentList '/l /f' -WindowStyle Hidden
+catch {
+    Write-Log "ERROR: $($_.Exception.Message)"
+    throw
+}

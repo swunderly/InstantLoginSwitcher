@@ -3,7 +3,7 @@
 
 primaryUser := "__PRIMARY_USER__"
 secondaryUser := "__SECONDARY_USER__"
-scriptPath := A_ScriptDir "\Switch-Login.ps1"
+scriptPath := A_ScriptDir . "\Switch-Login.ps1"
 
 triggered := false
 
@@ -44,11 +44,6 @@ ResetTrigger(*) {
 
 RunSwitch() {
     global scriptPath, primaryUser, secondaryUser
-    cmd := Format(
-        "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ""{1}"" -PrimaryUser ""{2}"" -SecondaryUser ""{3}""",
-        scriptPath,
-        primaryUser,
-        secondaryUser
-    )
+    cmd := "powershell.exe -NoProfile -ExecutionPolicy Bypass -File """ . scriptPath . """ -PrimaryUser """ . primaryUser . """ -SecondaryUser """ . secondaryUser . """"
     Run(cmd, , "Hide")
 }

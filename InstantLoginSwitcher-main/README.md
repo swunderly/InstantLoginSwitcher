@@ -81,6 +81,7 @@ You should see the listener task present.
   - Check task exists with `schtasks /Query /TN "InstantLoginSwitcher-Hotkey-Listener"`.
   - Confirm AutoHotkey is running after login with `Get-Process AutoHotkey64`.
   - Open Task Scheduler and confirm Last Run Result is `0x0`.
+  - Check switch log at `C:\ProgramData\InstantLoginSwitcher\switch.log`.
 - **Uninstall reports `InstantLoginSwitcher.ahk` is in use**:
   - Re-run `./Setup-InstantLoginSwitcher.ps1 -Uninstall` in an elevated PowerShell window.
   - The script now stops active listener processes before deleting files.
@@ -94,6 +95,7 @@ You should see the listener task present.
 1. Open the same unzipped folder.
 2. Double-click `Uninstall-InstantLoginSwitcher.cmd`.
 3. Accept the Administrator prompt.
+4. This removes the scheduled task, installed files, stored InstantLoginSwitcher credentials, and clears AutoAdminLogon password data.
 
 ### Manual PowerShell uninstall (alternative)
 
