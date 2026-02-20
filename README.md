@@ -19,7 +19,7 @@ It is not Fast User Switching.
 - Windows 11
 - AutoHotkey v2 installed
 - Local Administrator rights for install/uninstall
-- Two local Windows accounts to switch between
+- Two local Windows accounts to switch between (both must be in local `Administrators`)
 
 ## Install
 

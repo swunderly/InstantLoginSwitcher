@@ -30,13 +30,28 @@ function Get-AutoHotkeyExecutable {
     if (-not [string]::IsNullOrWhiteSpace(${env:ProgramFiles(x86)})) {
         $roots += ${env:ProgramFiles(x86)}
     }
+    if (-not [string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+        $roots += (Join-Path $env:LOCALAPPDATA 'Programs')
+    }
 
     foreach ($root in $roots | Select-Object -Unique) {
-        foreach ($relative in @('AutoHotkey\v2\AutoHotkey64.exe', 'AutoHotkey\v2\AutoHotkey.exe')) {
+        foreach ($relative in @(
+            'AutoHotkey\v2\AutoHotkey64.exe',
+            'AutoHotkey\v2\AutoHotkey.exe',
+            'AutoHotkey\AutoHotkey64.exe',
+            'AutoHotkey\AutoHotkey.exe'
+        )) {
             $candidate = Join-Path $root $relative
             if (Test-Path -LiteralPath $candidate) {
                 return $candidate
             }
+        }
+    }
+
+    foreach ($commandName in @('AutoHotkey64.exe', 'AutoHotkey.exe')) {
+        $command = Get-Command -Name $commandName -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($command -and (Test-Path -LiteralPath $command.Source)) {
+            return $command.Source
         }
     }
 
@@ -63,11 +78,35 @@ function Resolve-LocalAccount {
         throw "Could not find a local account matching '$InputName'. Use 'Get-LocalUser | Select Name, FullName' and pass Name."
     }
 
+    if (-not $matched.Enabled) {
+        throw "Local account '$($matched.Name)' is disabled. Enable it before configuring InstantLoginSwitcher."
+    }
+
     [pscustomobject]@{
         InputName = $InputName
         UserName  = $matched.Name
         FullName  = $matched.FullName
         Qualified = "$machine\$($matched.Name)"
+    }
+}
+
+function Assert-LocalAdministratorAccount {
+    param([Parameter(Mandatory)][string]$UserName)
+
+    try {
+        $admins = Get-LocalGroupMember -Group 'Administrators' -ErrorAction Stop
+    }
+    catch {
+        throw "Could not read local Administrators group membership: $($_.Exception.Message)"
+    }
+
+    $isAdmin = $admins | Where-Object {
+        $_.Name -ieq "$env:COMPUTERNAME\$UserName" -or
+        (($_.Name -split '\\')[-1] -ieq $UserName)
+    } | Select-Object -First 1
+
+    if (-not $isAdmin) {
+        throw "Account '$env:COMPUTERNAME\$UserName' is not in local Administrators. Both switch accounts must be administrators."
     }
 }
 
@@ -321,6 +360,8 @@ function Disable-AutoAdminLogon {
 
     Set-ItemProperty -Path $path -Name 'AutoAdminLogon' -Type String -Value '0' -ErrorAction SilentlyContinue
     Remove-ItemProperty -Path $path -Name 'DefaultPassword' -ErrorAction SilentlyContinue
+    Remove-ItemProperty -Path $path -Name 'DefaultUserName' -ErrorAction SilentlyContinue
+    Remove-ItemProperty -Path $path -Name 'DefaultDomainName' -ErrorAction SilentlyContinue
 }
 
 function Register-ListenerTask {
@@ -382,6 +423,9 @@ if ($primaryAccount.UserName -eq $secondaryAccount.UserName) {
     throw 'Primary and secondary users must be different.'
 }
 
+Assert-LocalAdministratorAccount -UserName $primaryAccount.UserName
+Assert-LocalAdministratorAccount -UserName $secondaryAccount.UserName
+
 $ahkExe = Get-AutoHotkeyExecutable
 if (-not $ahkExe) {
     throw 'AutoHotkey v2 was not found. Install AutoHotkey v2 first.'
@@ -392,6 +436,14 @@ $secondaryPasswordSecure = Read-Host "Password for $($secondaryAccount.Qualified
 
 $primaryPasswordPlain = Convert-SecureStringToPlainText -SecureString $primaryPasswordSecure
 $secondaryPasswordPlain = Convert-SecureStringToPlainText -SecureString $secondaryPasswordSecure
+
+if ([string]::IsNullOrWhiteSpace($primaryPasswordPlain)) {
+    throw "Password for $($primaryAccount.Qualified) cannot be blank."
+}
+
+if ([string]::IsNullOrWhiteSpace($secondaryPasswordPlain)) {
+    throw "Password for $($secondaryAccount.Qualified) cannot be blank."
+}
 
 $entropy = [Text.Encoding]::UTF8.GetBytes($entropySeed)
 $primaryPasswordEncrypted = Protect-PlainTextLocalMachine -PlainText $primaryPasswordPlain -Entropy $entropy
@@ -418,6 +470,15 @@ Write-Utf8NoBomFile -Path $encodedSwitchPath -Content $encodedCommand
 
 Write-ListenerScript -Path $listenerScriptPath
 Stop-ListenerProcesses -ScriptPath $listenerScriptPath
+
+$staleTaskNames = Get-ScheduledTask -ErrorAction SilentlyContinue |
+    Where-Object { $_.TaskName -like 'InstantLoginSwitcher-Hotkey-*' } |
+    Select-Object -ExpandProperty TaskName -Unique
+
+foreach ($taskName in $staleTaskNames) {
+    Remove-TaskIfExists -TaskName $taskName
+}
+
 Register-ListenerTask -TaskName $listenerTaskName -AutoHotkeyExe $ahkExe -ListenerScriptPath $listenerScriptPath
 
 try {

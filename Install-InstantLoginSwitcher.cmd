@@ -1,72 +1,81 @@
 @echo off
-setlocal EnableExtensions EnableDelayedExpansion
+setlocal EnableExtensions
 
 cd /d "%~dp0"
 set "LOG_FILE=%TEMP%\InstantLoginSwitcher-install.log"
-
-echo ============================================== > "!LOG_FILE!"
-echo InstantLoginSwitcher install started %DATE% %TIME% >> "!LOG_FILE!"
-echo Working directory: %CD% >> "!LOG_FILE!"
-
-echo InstantLoginSwitcher installer
-echo.
-echo Log file: !LOG_FILE!
-echo.
-
-net session >nul 2>&1
-if not "!errorlevel!"=="0" (
-    echo This installer must be run as Administrator.
-    echo Please right-click this file and choose "Run as administrator".
-    echo ERROR: not running as admin >> "!LOG_FILE!"
-    echo.
-    pause
-    exit /b 1
-)
-
 set "CORE_SCRIPT=%CD%\scripts\Setup-InstantLoginSwitcher.ps1"
-if not exist "!CORE_SCRIPT!" (
-    echo Could not find core setup script:
-    echo !CORE_SCRIPT!
-    echo ERROR: missing core script >> "!LOG_FILE!"
-    echo.
-    pause
-    exit /b 1
-)
-
+set "BOOTSTRAP_SCRIPT=%CD%\scripts\Invoke-SetupBootstrap.ps1"
 set "ILS_PRIMARY_USER=Samuel Wunderly"
 set "ILS_SECONDARY_USER=Lizzy Wunderly"
 set "ILS_MODE=Install"
-set "PS_BOOTSTRAP=JABFAHIAcgBvAHIAQQBjAHQAaQBvAG4AUAByAGUAZgBlAHIAZQBuAGMAZQAgAD0AIAAnAFMAdABvAHAAJwAKAHQAcgB5ACAAewAKACAAIAAgACAAJABzAGMAcgBpAHAAdABQAGEAdABoACAAPQAgACQAZQBuAHYAOgBDAE8AUgBFAF8AUwBDAFIASQBQAFQACgAgACAAIAAgAGkAZgAgACgAWwBzAHQAcgBpAG4AZwBdADoAOgBJAHMATgB1AGwAbABPAHIAVwBoAGkAdABlAFMAcABhAGMAZQAoACQAcwBjAHIAaQBwAHQAUABhAHQAaAApACkAIAB7AAoAIAAgACAAIAAgACAAIAAgAHQAaAByAG8AdwAgACcAQwBPAFIARQBfAFMAQwBSAEkAUABUACAAZQBuAHYAaQByAG8AbgBtAGUAbgB0ACAAdgBhAHIAaQBhAGIAbABlACAAaQBzACAAbQBpAHMAcwBpAG4AZwAuACcACgAgACAAIAAgAH0ACgAKACAAIAAgACAAaQBmACAAKAAtAG4AbwB0ACAAKABUAGUAcwB0AC0AUABhAHQAaAAgAC0ATABpAHQAZQByAGEAbABQAGEAdABoACAAJABzAGMAcgBpAHAAdABQAGEAdABoACkAKQAgAHsACgAgACAAIAAgACAAIAAgACAAdABoAHIAbwB3ACAAIgBDAG8AcgBlACAAcwBjAHIAaQBwAHQAIABuAG8AdAAgAGYAbwB1AG4AZAA6ACAAJABzAGMAcgBpAHAAdABQAGEAdABoACIACgAgACAAIAAgAH0ACgAKACAAIAAgACAAJABzAGMAcgBpAHAAdABUAGUAeAB0ACAAPQAgAEcAZQB0AC0AQwBvAG4AdABlAG4AdAAgAC0ATABpAHQAZQByAGEAbABQAGEAdABoACAAJABzAGMAcgBpAHAAdABQAGEAdABoACAALQBSAGEAdwAKACAAIAAgACAAJABjAG8AcgBlACAAPQAgAFsAUwBjAHIAaQBwAHQAQgBsAG8AYwBrAF0AOgA6AEMAcgBlAGEAdABlACgAJABzAGMAcgBpAHAAdABUAGUAeAB0ACkACgAKACAAIAAgACAAJABtAG8AZABlACAAPQAgACQAZQBuAHYAOgBJAEwAUwBfAE0ATwBEAEUACgAgACAAIAAgAGkAZgAgACgAWwBzAHQAcgBpAG4AZwBdADoAOgBJAHMATgB1AGwAbABPAHIAVwBoAGkAdABlAFMAcABhAGMAZQAoACQAbQBvAGQAZQApACkAIAB7AAoAIAAgACAAIAAgACAAIAAgAHQAaAByAG8AdwAgACcASQBMAFMAXwBNAE8ARABFACAAZQBuAHYAaQByAG8AbgBtAGUAbgB0ACAAdgBhAHIAaQBhAGIAbABlACAAaQBzACAAbQBpAHMAcwBpAG4AZwAuACcACgAgACAAIAAgAH0ACgAKACAAIAAgACAAaQBmACAAKAAkAG0AbwBkAGUAIAAtAGUAcQAgACcASQBuAHMAdABhAGwAbAAnACkAIAB7AAoAIAAgACAAIAAgACAAIAAgACYAIAAkAGMAbwByAGUAIAAtAE0AbwBkAGUAIABJAG4AcwB0AGEAbABsACAALQBQAHIAaQBtAGEAcgB5AFUAcwBlAHIAIAAkAGUAbgB2ADoASQBMAFMAXwBQAFIASQBNAEEAUgBZAF8AVQBTAEUAUgAgAC0AUwBlAGMAbwBuAGQAYQByAHkAVQBzAGUAcgAgACQAZQBuAHYAOgBJAEwAUwBfAFMARQBDAE8ATgBEAEEAUgBZAF8AVQBTAEUAUgAKACAAIAAgACAAfQAKACAAIAAgACAAZQBsAHMAZQBpAGYAIAAoACQAbQBvAGQAZQAgAC0AZQBxACAAJwBVAG4AaQBuAHMAdABhAGwAbAAnACkAIAB7AAoAIAAgACAAIAAgACAAIAAgACYAIAAkAGMAbwByAGUAIAAtAE0AbwBkAGUAIABVAG4AaQBuAHMAdABhAGwAbAAKACAAIAAgACAAfQAKACAAIAAgACAAZQBsAHMAZQAgAHsACgAgACAAIAAgACAAIAAgACAAdABoAHIAbwB3ACAAIgBVAG4AcwB1AHAAcABvAHIAdABlAGQAIABtAG8AZABlADoAIAAkAG0AbwBkAGUAIgAKACAAIAAgACAAfQAKAAoAIAAgACAAIABlAHgAaQB0ACAAMAAKAH0ACgBjAGEAdABjAGgAIAB7AAoAIAAgACAAIABXAHIAaQB0AGUALQBIAG8AcwB0ACAAJABfAC4ARQB4AGMAZQBwAHQAaQBvAG4ALgBNAGUAcwBzAGEAZwBlAAoAIAAgACAAIABpAGYAIAAoAC0AbgBvAHQAIABbAHMAdAByAGkAbgBnAF0AOgA6AEkAcwBOAHUAbABsAE8AcgBXAGgAaQB0AGUAUwBwAGEAYwBlACgAJABlAG4AdgA6AEwATwBHAF8ARgBJAEwARQApACkAIAB7AAoAIAAgACAAIAAgACAAIAAgAEEAZABkAC0AQwBvAG4AdABlAG4AdAAgAC0ATABpAHQAZQByAGEAbABQAGEAdABoACAAJABlAG4AdgA6AEwATwBHAF8ARgBJAEwARQAgAC0AVgBhAGwAdQBlACAAJABfAC4ARQB4AGMAZQBwAHQAaQBvAG4ALgBUAG8AUwB0AHIAaQBuAGcAKAApAAoAIAAgACAAIAB9AAoAIAAgACAAIABlAHgAaQB0ACAAMQAKAH0A"
+set "EXIT_CODE=1"
+
+call :WRITE_HEADER
+
+echo InstantLoginSwitcher installer
+echo.
+echo Log file: %LOG_FILE%
+echo.
+
+fltmc >nul 2>&1
+if errorlevel 1 goto NEED_ADMIN
+
+if not exist "%CORE_SCRIPT%" goto MISSING_CORE
+if not exist "%BOOTSTRAP_SCRIPT%" goto MISSING_BOOTSTRAP
 
 echo Leave blank to keep defaults shown in [brackets].
 echo.
 set /p "PRIMARY_INPUT=Primary user [%ILS_PRIMARY_USER%]: "
-if defined PRIMARY_INPUT set "ILS_PRIMARY_USER=%PRIMARY_INPUT%"
-
+if not "%PRIMARY_INPUT%"=="" set "ILS_PRIMARY_USER=%PRIMARY_INPUT%"
 set /p "SECONDARY_INPUT=Secondary user [%ILS_SECONDARY_USER%]: "
-if defined SECONDARY_INPUT set "ILS_SECONDARY_USER=%SECONDARY_INPUT%"
+if not "%SECONDARY_INPUT%"=="" set "ILS_SECONDARY_USER=%SECONDARY_INPUT%"
 
-echo Primary user: !ILS_PRIMARY_USER! >> "!LOG_FILE!"
-echo Secondary user: !ILS_SECONDARY_USER! >> "!LOG_FILE!"
-echo Running in-memory PowerShell core... >> "!LOG_FILE!"
+echo Primary user: %ILS_PRIMARY_USER% >> "%LOG_FILE%"
+echo Secondary user: %ILS_SECONDARY_USER% >> "%LOG_FILE%"
+echo Running in-memory PowerShell core... >> "%LOG_FILE%"
 
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -EncodedCommand !PS_BOOTSTRAP! >> "!LOG_FILE!" 2>&1
-
-set "EXIT_CODE=%errorlevel%"
-echo PowerShell exit code: !EXIT_CODE! >> "!LOG_FILE!"
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $bootstrapPath = $env:BOOTSTRAP_SCRIPT; if (-not (Test-Path -LiteralPath $bootstrapPath)) { throw ('Bootstrap script not found: ' + $bootstrapPath) }; $bootstrapText = Get-Content -LiteralPath $bootstrapPath -Raw; & ([ScriptBlock]::Create($bootstrapText))"
+set "EXIT_CODE=%ERRORLEVEL%"
+echo PowerShell exit code: %EXIT_CODE% >> "%LOG_FILE%"
 echo.
 
-if not "!EXIT_CODE!"=="0" (
-    echo Install failed with exit code !EXIT_CODE!.
-    echo See log: !LOG_FILE!
-    echo.
-    pause
-    exit /b !EXIT_CODE!
-)
+if not "%EXIT_CODE%"=="0" goto INSTALL_FAILED
 
 echo Install completed.
 echo Sign out and back in once, then press Numpad4 + Numpad5 + Numpad6 together.
-echo See log: !LOG_FILE!
+set "EXIT_CODE=0"
+goto END
+
+:NEED_ADMIN
+echo This installer must be run as Administrator.
+echo Please right-click this file and choose "Run as administrator".
+echo ERROR: not running as admin >> "%LOG_FILE%"
+goto END
+
+:MISSING_CORE
+echo Could not find core setup script:
+echo %CORE_SCRIPT%
+echo ERROR: missing core script >> "%LOG_FILE%"
+goto END
+
+:MISSING_BOOTSTRAP
+echo Could not find bootstrap script:
+echo %BOOTSTRAP_SCRIPT%
+echo ERROR: missing bootstrap script >> "%LOG_FILE%"
+goto END
+
+:INSTALL_FAILED
+echo Install failed with exit code %EXIT_CODE%.
+goto END
+
+:WRITE_HEADER
+echo ============================================== > "%LOG_FILE%"
+echo InstantLoginSwitcher install started %DATE% %TIME% >> "%LOG_FILE%"
+echo Working directory: %CD% >> "%LOG_FILE%"
+exit /b 0
+
+:END
+echo See log: %LOG_FILE%
 echo.
 pause
-exit /b 0
+exit /b %EXIT_CODE%
