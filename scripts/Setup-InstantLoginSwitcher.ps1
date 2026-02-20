@@ -15,6 +15,7 @@ $listenerScriptPath = Join-Path $installDir 'InstantLoginSwitcher.ahk'
 $listenerTaskPrefix = 'InstantLoginSwitcher-Hotkey'
 $legacyListenerTaskName = 'InstantLoginSwitcher-Hotkey-Listener'
 $localAdministratorsSid = 'S-1-5-32-544'
+$defaultSwitchMode = 'Restart'
 
 function Test-Admin {
     $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
@@ -319,9 +320,19 @@ try {
         }
     }
 
+    $switchMode = if ($config.SwitchMode) { [string]$config.SwitchMode } else { 'Restart' }
+    if ($switchMode -ieq 'Logoff') {
+        $shutdownArgs = '/l /f'
+    }
+    else {
+        $shutdownArgs = '/r /f /t 0'
+        $switchMode = 'Restart'
+    }
+
     Write-Log "Prepared AutoAdminLogon+ForceAutoLogon for '$targetUser' (triggered by '$currentUser')."
+    Write-Log "Switch action: $switchMode ($shutdownArgs)"
     Start-Sleep -Milliseconds 150
-    Start-Process -FilePath shutdown.exe -ArgumentList '/l /f' -WindowStyle Hidden
+    Start-Process -FilePath shutdown.exe -ArgumentList $shutdownArgs -WindowStyle Hidden
 }
 catch {
     Write-Log ("ERROR: " + $_.Exception.Message)
@@ -565,6 +576,7 @@ $config = [pscustomobject]@{
     SecondaryQualifiedUser = $secondaryAccount.Qualified
     PrimaryPasswordEnc   = $primaryPasswordEncrypted
     SecondaryPasswordEnc = $secondaryPasswordEncrypted
+    SwitchMode           = $defaultSwitchMode
     MachineName          = $env:COMPUTERNAME
     UpdatedAtUtc         = [System.DateTime]::UtcNow.ToString('o')
 }
@@ -606,5 +618,6 @@ Write-Host "Resolved primary account: $($primaryAccount.Qualified)"
 Write-Host "Resolved secondary account: $($secondaryAccount.Qualified)"
 Write-Host "Listener task (primary): $primaryTaskName"
 Write-Host "Listener task (secondary): $secondaryTaskName"
+Write-Host "Switch action: $defaultSwitchMode"
 Write-Host 'InstantLoginSwitcher installed.'
 Write-Host 'Hotkey: Numpad4 + Numpad5 + Numpad6'
