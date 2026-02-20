@@ -8,7 +8,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $installDir = Join-Path $env:ProgramData 'InstantLoginSwitcher'
-$taskNameBase = 'InstantLoginSwitcher-Hotkey'
+$listenerTaskName = 'InstantLoginSwitcher-Hotkey-Listener'
 
 function Test-Admin {
     $current = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -59,19 +59,10 @@ if (-not (Test-Admin)) {
 }
 
 if ($Uninstall) {
-    $knownTasks = @()
-    if ($PrimaryUser) {
-        $knownTasks += "$taskNameBase-$($PrimaryUser.Replace(' ','_').Replace('\\','_'))"
-    }
-    if ($SecondaryUser) {
-        $knownTasks += "$taskNameBase-$($SecondaryUser.Replace(' ','_').Replace('\\','_'))"
-    }
-
-    if ($knownTasks.Count -eq 0) {
-        $knownTasks += (Get-ScheduledTask -ErrorAction SilentlyContinue |
-            Where-Object { $_.TaskName -like "$taskNameBase-*" } |
-            Select-Object -ExpandProperty TaskName)
-    }
+    $knownTasks = @($listenerTaskName)
+    $knownTasks += (Get-ScheduledTask -ErrorAction SilentlyContinue |
+        Where-Object { $_.TaskName -like 'InstantLoginSwitcher-Hotkey-*' } |
+        Select-Object -ExpandProperty TaskName)
 
     foreach ($taskName in $knownTasks | Select-Object -Unique) {
         Remove-TaskIfExists -TaskName $taskName
@@ -114,34 +105,15 @@ $template = $template.Replace('__PRIMARY_USER__', $primaryAccount.UserName).Repl
 $ahkScriptPath = Join-Path $installDir 'InstantLoginSwitcher.ahk'
 Set-Content -Path $ahkScriptPath -Value $template -Encoding UTF8
 
-$plainPrimaryBstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($primaryPassword)
-$plainSecondaryBstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secondaryPassword)
-$plainPrimary = $null
-$plainSecondary = $null
+$action = New-ScheduledTaskAction -Execute $ahkExe -Argument ('"{0}"' -f $ahkScriptPath)
+$trigger = New-ScheduledTaskTrigger -AtLogOn
+$principal = New-ScheduledTaskPrincipal -GroupId 'Users' -RunLevel Highest
+$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 
-try {
-    $plainPrimary = [Runtime.InteropServices.Marshal]::PtrToStringUni($plainPrimaryBstr)
-    $plainSecondary = [Runtime.InteropServices.Marshal]::PtrToStringUni($plainSecondaryBstr)
-
-    $primaryTaskName = "$taskNameBase-$($primaryAccount.UserName.Replace(' ','_'))"
-    $secondaryTaskName = "$taskNameBase-$($secondaryAccount.UserName.Replace(' ','_'))"
-
-    $action = New-ScheduledTaskAction -Execute $ahkExe -Argument ('"{0}"' -f $ahkScriptPath)
-    $primaryTrigger = New-ScheduledTaskTrigger -AtLogOn -User $primaryAccount.Qualified
-    $secondaryTrigger = New-ScheduledTaskTrigger -AtLogOn -User $secondaryAccount.Qualified
-    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
-
-    Register-ScheduledTask -TaskName $primaryTaskName -Action $action -Trigger $primaryTrigger -Settings $settings -RunLevel Highest -User $primaryAccount.Qualified -Password $plainPrimary -Force -ErrorAction Stop | Out-Null
-    Register-ScheduledTask -TaskName $secondaryTaskName -Action $action -Trigger $secondaryTrigger -Settings $settings -RunLevel Highest -User $secondaryAccount.Qualified -Password $plainSecondary -Force -ErrorAction Stop | Out-Null
-}
-finally {
-    if ($plainPrimaryBstr -and $plainPrimaryBstr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($plainPrimaryBstr) }
-    if ($plainSecondaryBstr -and $plainSecondaryBstr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($plainSecondaryBstr) }
-    $plainPrimary = $null
-    $plainSecondary = $null
-}
+Register-ScheduledTask -TaskName $listenerTaskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force -ErrorAction Stop | Out-Null
 
 Write-Host "Resolved primary account: $($primaryAccount.Qualified)"
 Write-Host "Resolved secondary account: $($secondaryAccount.Qualified)"
+Write-Host "Scheduled task: $listenerTaskName"
 Write-Host 'InstantLoginSwitcher is installed.'
 Write-Host 'Hotkey: Numpad4 + Numpad5 + Numpad6'

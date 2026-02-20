@@ -44,11 +44,10 @@ cd C:\Tools\InstantLoginSwitcher\scripts
 In PowerShell (Admin):
 
 ```powershell
-schtasks /Query /TN "InstantLoginSwitcher-Hotkey-Samuel_Wunderly"
-schtasks /Query /TN "InstantLoginSwitcher-Hotkey-Lizzy_Wunderly"
+schtasks /Query /TN "InstantLoginSwitcher-Hotkey-Listener"
 ```
 
-You should see both tasks present.
+You should see the listener task present.
 
 ## Daily use
 
@@ -64,14 +63,10 @@ You should see both tasks present.
   - In the same PowerShell window, run: `Set-ExecutionPolicy -Scope Process Bypass -Force`
   - If you downloaded a ZIP, also run: `Get-ChildItem .\*.ps1 | Unblock-File`
   - Then run setup again.
-- **"No mapping between account names and security IDs" during setup**:
-  - You are likely using the account **Full Name** instead of the account **Name**.
-  - Check account names with: `Get-LocalUser | Select Name, FullName`
-  - Re-run using Name values (example):
-    - `.\Setup-InstantLoginSwitcher.ps1 -PrimaryUser "samuel" -SecondaryUser "lizzy"`
-  - If a partial install already happened, run `.\Setup-InstantLoginSwitcher.ps1 -Uninstall` first, then reinstall.
 - **Hotkey does nothing**:
-  - Check task exists with `schtasks /Query /TN "InstantLoginSwitcher-Hotkey-<User_With_Underscores>"`.
+  - Sign out and back in once after setup.
+  - Check task exists with `schtasks /Query /TN "InstantLoginSwitcher-Hotkey-Listener"`.
+  - Confirm AutoHotkey is running after login with `Get-Process AutoHotkey64`.
   - Open Task Scheduler and confirm Last Run Result is `0x0`.
 - **Wrong password after account password change**:
   - Rerun setup script and provide new passwords.
