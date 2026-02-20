@@ -28,6 +28,7 @@ It is not Fast User Switching.
 3. Install AutoHotkey v2 (if not already installed).
 4. Right-click `Install-InstantLoginSwitcher.cmd` and choose **Run as administrator**.
 5. Enter the two account names and passwords when prompted.
+   Use each account's Windows password, not a PIN.
 6. Sign out and sign back in once.
 7. Test the hotkey: **Numpad4 + Numpad5 + Numpad6**.
 
@@ -37,9 +38,9 @@ It is not Fast User Switching.
 
 Uninstall removes:
 
-- Scheduled task `InstantLoginSwitcher-Hotkey-Listener`
+- Scheduled tasks matching `InstantLoginSwitcher-Hotkey-*`
 - Installed runtime files in `C:\ProgramData\InstantLoginSwitcher`
-- AutoAdminLogon password value
+- AutoAdminLogon registry values set by this tool
 
 ## Troubleshooting
 
@@ -51,7 +52,7 @@ Uninstall removes:
 - Script signing errors in PowerShell:
   - Use the `.cmd` files above. Do not run `.ps1` directly.
 - Hotkey does nothing:
-  - Check task exists:
-    - `schtasks /Query /TN "InstantLoginSwitcher-Hotkey-Listener"`
+  - Check tasks exist:
+    - `schtasks /Query /FO LIST | findstr /I "InstantLoginSwitcher-Hotkey"`
   - Check switch log:
     - `C:\ProgramData\InstantLoginSwitcher\switch.log`

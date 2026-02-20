@@ -143,6 +143,70 @@ function Convert-SecureStringToPlainText {
     }
 }
 
+function Test-LocalCredential {
+    param(
+        [Parameter(Mandatory)][string]$QualifiedUser,
+        [Parameter(Mandatory)][string]$Password
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Password)) {
+        return [pscustomobject]@{
+            Success    = $false
+            Win32Error = 0
+        }
+    }
+
+    $parts = $QualifiedUser.Split('\', 2)
+    if ($parts.Count -ne 2) {
+        throw "Invalid qualified user value '$QualifiedUser'. Expected COMPUTERNAME\\UserName."
+    }
+
+    if (-not ('InstantLoginSwitcher.NativeMethods' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+namespace InstantLoginSwitcher {
+    public static class NativeMethods {
+        [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        public static extern bool LogonUser(
+            string lpszUsername,
+            string lpszDomain,
+            string lpszPassword,
+            int dwLogonType,
+            int dwLogonProvider,
+            out IntPtr phToken
+        );
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern bool CloseHandle(IntPtr hObject);
+    }
+}
+'@ -ErrorAction Stop
+    }
+
+    $token = [System.IntPtr]::Zero
+    $success = [InstantLoginSwitcher.NativeMethods]::LogonUser(
+        $parts[1],
+        $parts[0],
+        $Password,
+        2,
+        0,
+        [ref]$token
+    )
+
+    $win32Error = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
+
+    if ($token -ne [System.IntPtr]::Zero) {
+        [InstantLoginSwitcher.NativeMethods]::CloseHandle($token) | Out-Null
+    }
+
+    return [pscustomobject]@{
+        Success    = $success
+        Win32Error = $win32Error
+    }
+}
+
 function Protect-PlainTextLocalMachine {
     param([Parameter(Mandatory)][string]$PlainText)
 
@@ -233,7 +297,27 @@ try {
     Set-ItemProperty -Path $winlogonPath -Name 'DefaultUserName' -Type String -Value $targetUser
     Set-ItemProperty -Path $winlogonPath -Name 'DefaultPassword' -Type String -Value $password
     Set-ItemProperty -Path $winlogonPath -Name 'DefaultDomainName' -Type String -Value $domain
+    Set-ItemProperty -Path $winlogonPath -Name 'AltDefaultUserName' -Type String -Value $targetUser
+    Set-ItemProperty -Path $winlogonPath -Name 'AltDefaultDomainName' -Type String -Value $domain
+    Set-ItemProperty -Path $winlogonPath -Name 'LastUsedUsername' -Type String -Value ($domain + '\' + $targetUser)
     Remove-ItemProperty -Path $winlogonPath -Name 'AutoLogonCount' -ErrorAction SilentlyContinue
+
+    $snapshot = Get-ItemProperty -Path $winlogonPath -ErrorAction SilentlyContinue
+    if ($snapshot) {
+        Write-Log ("Winlogon snapshot: AutoAdminLogon={0}; ForceAutoLogon={1}; DefaultUserName={2}; DefaultDomainName={3}" -f $snapshot.AutoAdminLogon, $snapshot.ForceAutoLogon, $snapshot.DefaultUserName, $snapshot.DefaultDomainName)
+    }
+
+    $policyPath = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
+    if (Test-Path -LiteralPath $policyPath) {
+        $policy = Get-ItemProperty -Path $policyPath -ErrorAction SilentlyContinue
+        if ($policy) {
+            $caption = [string]$policy.legalnoticecaption
+            $text = [string]$policy.legalnoticetext
+            if (-not [string]::IsNullOrWhiteSpace($caption) -or -not [string]::IsNullOrWhiteSpace($text)) {
+                Write-Log 'WARNING: Legal notice policy is enabled and can block automatic sign-in.'
+            }
+        }
+    }
 
     Write-Log "Prepared AutoAdminLogon+ForceAutoLogon for '$targetUser' (triggered by '$currentUser')."
     Start-Sleep -Milliseconds 150
@@ -376,6 +460,8 @@ function Disable-AutoAdminLogon {
     Remove-ItemProperty -Path $path -Name 'DefaultPassword' -ErrorAction SilentlyContinue
     Remove-ItemProperty -Path $path -Name 'DefaultUserName' -ErrorAction SilentlyContinue
     Remove-ItemProperty -Path $path -Name 'DefaultDomainName' -ErrorAction SilentlyContinue
+    Remove-ItemProperty -Path $path -Name 'AltDefaultUserName' -ErrorAction SilentlyContinue
+    Remove-ItemProperty -Path $path -Name 'AltDefaultDomainName' -ErrorAction SilentlyContinue
     Remove-ItemProperty -Path $path -Name 'AutoLogonCount' -ErrorAction SilentlyContinue
 }
 
@@ -454,6 +540,16 @@ if ([string]::IsNullOrWhiteSpace($primaryPasswordPlain)) {
 
 if ([string]::IsNullOrWhiteSpace($secondaryPasswordPlain)) {
     throw "Password for $($secondaryAccount.Qualified) cannot be blank."
+}
+
+$primaryCredentialCheck = Test-LocalCredential -QualifiedUser $primaryAccount.Qualified -Password $primaryPasswordPlain
+if (-not $primaryCredentialCheck.Success) {
+    throw "Password validation failed for $($primaryAccount.Qualified) (Win32 error $($primaryCredentialCheck.Win32Error)). Use the Windows account password, not a PIN."
+}
+
+$secondaryCredentialCheck = Test-LocalCredential -QualifiedUser $secondaryAccount.Qualified -Password $secondaryPasswordPlain
+if (-not $secondaryCredentialCheck.Success) {
+    throw "Password validation failed for $($secondaryAccount.Qualified) (Win32 error $($secondaryCredentialCheck.Win32Error)). Use the Windows account password, not a PIN."
 }
 
 $primaryPasswordEncrypted = Protect-PlainTextLocalMachine -PlainText $primaryPasswordPlain
