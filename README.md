@@ -1,84 +1,70 @@
 # InstantLoginSwitcher
 
-Windows 11 one-button account switching for two local users.
+Windows 11 two-user hotkey switcher.
 
-## What this does
+## What it does
 
-- Listens for a global hotkey chord: **Numpad 4 + Numpad 5 + Numpad 6**.
-- Detects who is currently logged in.
-- Looks up the *other* user's credentials from Windows Credential Manager.
-- Sets Windows AutoAdminLogon to the other user.
-- Force-closes the current user's applications and logs out.
-- Windows auto-signs into the target account.
+- Starts a background hotkey listener at login.
+- Hotkey is **Numpad4 + Numpad5 + Numpad6** pressed together.
+- When triggered:
+  - Detects the current logged-in user from the configured pair.
+  - Configures AutoAdminLogon for the other user.
+  - Forces logout.
+  - Windows immediately starts signing in the other user.
 
-## Security note
+This is not Fast User Switching. It is a forced logout + immediate autologon to the paired account.
 
-Credentials are stored in **Windows Credential Manager** (DPAPI-protected) under custom targets.
-To perform automatic sign-in after logout, Windows AutoAdminLogon registry keys are updated during the switch process.
+## Important requirements
+
+- AutoHotkey v2 must be installed.
+- Installer/uninstaller must run as Administrator.
+- The user session running the listener must have rights to set:
+  - `HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon`
 
 ## Files
 
-- `scripts/Setup-InstantLoginSwitcher.ps1` — one-time installer.
-- `scripts/Switch-Login.ps1` — performs the account flip.
-- `scripts/CredentialStore.psm1` — reads/writes credentials in Credential Manager.
-- `scripts/InstantLoginSwitcher.ahk` — global hotkey listener.
+- `Install-InstantLoginSwitcher.cmd` - one-click installer.
+- `Uninstall-InstantLoginSwitcher.cmd` - one-click uninstaller.
+- `scripts/Setup-InstantLoginSwitcher.ps1` - core logic called in-memory by the `.cmd` wrappers.
+- `scripts/InstantLoginSwitcher.ahk` - listener template script.
 
-## Quick start on your PC (Samuel + Lizzy)
+## Install (recommended)
 
-1. Download this repo to your Windows PC (for example to `C:\Tools\InstantLoginSwitcher`).
-2. Install [AutoHotkey v2](https://www.autohotkey.com/) with default options.
-3. Open **PowerShell as Administrator**.
-4. Run:
-
-```powershell
-Set-ExecutionPolicy -Scope Process Bypass -Force
-cd C:\Tools\InstantLoginSwitcher\scripts
-.\Setup-InstantLoginSwitcher.ps1 -PrimaryUser "Samuel Wunderly" -SecondaryUser "Lizzy Wunderly"
-```
-
-5. Enter each account's password when prompted.
-6. Sign out once, sign back in, then test hotkey: press **Numpad 4 + 5 + 6 together**.
-
-## Validate it is installed
-
-In PowerShell (Admin):
-
-```powershell
-schtasks /Query /TN "InstantLoginSwitcher-Hotkey-Listener"
-```
-
-You should see the listener task present.
-
-## Daily use
-
-- Press **Numpad 4 + 5 + 6** together.
-- Current user is force-logged out (unsaved work is lost).
-- Windows logs into the other configured account automatically.
-
-## Troubleshooting
-
-- **AutoHotkey not found**:
-  - Reinstall AutoHotkey v2, then rerun setup.
-- **Script is not digitally signed / PSSecurityException**:
-  - In the same PowerShell window, run: `Set-ExecutionPolicy -Scope Process Bypass -Force`
-  - If you downloaded a ZIP, also run: `Get-ChildItem .\*.ps1 | Unblock-File`
-  - Then run setup again.
-- **Hotkey does nothing**:
-  - Sign out and back in once after setup.
-  - Check task exists with `schtasks /Query /TN "InstantLoginSwitcher-Hotkey-Listener"`.
-  - Confirm AutoHotkey is running after login with `Get-Process AutoHotkey64`.
-  - Open Task Scheduler and confirm Last Run Result is `0x0`.
-- **Uninstall reports `InstantLoginSwitcher.ahk` is in use**:
-  - Re-run `./Setup-InstantLoginSwitcher.ps1 -Uninstall` in an elevated PowerShell window.
-  - The script now stops active listener processes before deleting files.
-- **Wrong password after account password change**:
-  - Rerun setup script and provide new passwords.
+1. Download ZIP from GitHub.
+2. Unzip anywhere.
+3. Install AutoHotkey v2 if needed.
+4. Double-click `Install-InstantLoginSwitcher.cmd`.
+5. If prompted, right-click and run it as Administrator.
+6. Enter the two local account names and passwords.
+7. Sign out and back in once.
+8. Press **Numpad4 + Numpad5 + Numpad6** together.
 
 ## Uninstall
 
-Run as Administrator:
+1. Double-click `Uninstall-InstantLoginSwitcher.cmd`.
+2. If prompted, right-click and run it as Administrator.
 
-```powershell
-cd C:\Tools\InstantLoginSwitcher\scripts
-.\Setup-InstantLoginSwitcher.ps1 -Uninstall
-```
+Uninstall removes:
+
+- Scheduled task listener.
+- Installed runtime folder at `C:\ProgramData\InstantLoginSwitcher`.
+- AutoAdminLogon password value.
+
+## Troubleshooting
+
+- **Black console window appears then disappears**:
+  - Use right-click -> **Run as administrator**.
+  - Install log: `%TEMP%\InstantLoginSwitcher-install.log`
+  - Uninstall log: `%TEMP%\InstantLoginSwitcher-uninstall.log`
+- **"Unknown publisher / unknown developer" warning**:
+  - Expected for unsigned local scripts. Choose **Run anyway**.
+- **PowerShell says script is not digitally signed**:
+  - Use the `.cmd` files only.
+  - They execute setup logic in-memory and do not require direct `-File` execution of `.ps1`.
+- **Hotkey does nothing**:
+  - Check task exists:
+    - `schtasks /Query /TN "InstantLoginSwitcher-Hotkey-Listener"`
+  - Check log file:
+    - `C:\ProgramData\InstantLoginSwitcher\switch.log`
+  - Confirm AutoHotkey is running:
+    - `Get-Process AutoHotkey64`

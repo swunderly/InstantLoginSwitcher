@@ -1,73 +1,66 @@
 param(
+    [ValidateSet('Install', 'Uninstall')]
+    [string]$Mode = 'Install',
     [string]$PrimaryUser,
-    [string]$SecondaryUser,
-    [switch]$Uninstall
+    [string]$SecondaryUser
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $installDir = Join-Path $env:ProgramData 'InstantLoginSwitcher'
+$configPath = Join-Path $installDir 'config.json'
+$encodedSwitchPath = Join-Path $installDir 'switch-command.b64'
+$listenerScriptPath = Join-Path $installDir 'InstantLoginSwitcher.ahk'
 $listenerTaskName = 'InstantLoginSwitcher-Hotkey-Listener'
+$entropySeed = 'InstantLoginSwitcher-v2'
+$usersGroupSid = 'S-1-5-32-545'
 
 function Test-Admin {
-    $current = [Security.Principal.WindowsIdentity]::GetCurrent()
-    $principal = New-Object Security.Principal.WindowsPrincipal($current)
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
     return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
-function Stop-ListenerProcesses {
-    param([Parameter(Mandatory)][string]$InstallPath)
-
-    $ahkScriptPath = Join-Path $InstallPath 'InstantLoginSwitcher.ahk'
-    if (-not (Test-Path $ahkScriptPath)) {
-        return
+function Get-AutoHotkeyExecutable {
+    $roots = @()
+    if (-not [string]::IsNullOrWhiteSpace($env:ProgramFiles)) {
+        $roots += $env:ProgramFiles
+    }
+    if (-not [string]::IsNullOrWhiteSpace(${env:ProgramFiles(x86)})) {
+        $roots += ${env:ProgramFiles(x86)}
     }
 
-    $escapedPath = [Regex]::Escape($ahkScriptPath)
-    $listenerProcesses = Get-CimInstance Win32_Process -Filter "Name LIKE 'AutoHotkey%.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -match $escapedPath }
-
-    foreach ($process in $listenerProcesses) {
-        Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
-    }
-}
-
-function Remove-TaskIfExists {
-    param([Parameter(Mandatory)][string]$TaskName)
-
-    $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-    if ($existing) {
-        try {
-            Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    foreach ($root in $roots | Select-Object -Unique) {
+        foreach ($relative in @('AutoHotkey\v2\AutoHotkey64.exe', 'AutoHotkey\v2\AutoHotkey.exe')) {
+            $candidate = Join-Path $root $relative
+            if (Test-Path -LiteralPath $candidate) {
+                return $candidate
+            }
         }
-        catch {
-            # no-op: task may not be running
-        }
-
-        Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
     }
+
+    return $null
 }
 
 function Resolve-LocalAccount {
     param([Parameter(Mandatory)][string]$InputName)
 
     $machine = $env:COMPUTERNAME
-    $candidate = $InputName
+    $candidate = $InputName.Trim()
+
     if ($candidate.Contains('\')) {
-        $parts = $candidate.Split('\', 2)
-        $candidate = $parts[1]
+        $candidate = $candidate.Split('\', 2)[1]
     }
 
     $localUsers = Get-LocalUser
-
     $matched = $localUsers | Where-Object { $_.Name -eq $candidate } | Select-Object -First 1
     if (-not $matched) {
         $matched = $localUsers | Where-Object { $_.FullName -eq $candidate } | Select-Object -First 1
     }
 
     if (-not $matched) {
-        throw "Could not find a local account matching '$InputName'. Run 'Get-LocalUser | Select Name, FullName' and use the Name value."
+        throw "Could not find a local account matching '$InputName'. Use 'Get-LocalUser | Select Name, FullName' and pass Name."
     }
 
     [pscustomobject]@{
@@ -78,69 +71,366 @@ function Resolve-LocalAccount {
     }
 }
 
-if (-not (Test-Admin)) {
-    throw 'Run this setup script in an elevated PowerShell session (Run as Administrator).'
+function Convert-SecureStringToPlainText {
+    param([Parameter(Mandatory)][SecureString]$SecureString)
+
+    $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecureString)
+    try {
+        return [Runtime.InteropServices.Marshal]::PtrToStringUni($bstr)
+    }
+    finally {
+        if ($bstr -ne [IntPtr]::Zero) {
+            [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+        }
+    }
 }
 
-if ($Uninstall) {
-    $knownTasks = @($listenerTaskName)
-    $knownTasks += (Get-ScheduledTask -ErrorAction SilentlyContinue |
+function Protect-PlainTextLocalMachine {
+    param(
+        [Parameter(Mandatory)][string]$PlainText,
+        [Parameter(Mandatory)][byte[]]$Entropy
+    )
+
+    $plainBytes = [Text.Encoding]::UTF8.GetBytes($PlainText)
+    $protected = [Security.Cryptography.ProtectedData]::Protect(
+        $plainBytes,
+        $Entropy,
+        [Security.Cryptography.DataProtectionScope]::LocalMachine
+    )
+    return [Convert]::ToBase64String($protected)
+}
+
+function ConvertTo-SingleQuotedLiteral {
+    param([Parameter(Mandatory)][string]$Value)
+    return "'" + ($Value -replace "'", "''") + "'"
+}
+
+function New-EncodedSwitchCommand {
+    param(
+        [Parameter(Mandatory)][string]$ConfigFilePath,
+        [Parameter(Mandatory)][string]$EntropySeedValue
+    )
+
+    $configLiteral = ConvertTo-SingleQuotedLiteral -Value $ConfigFilePath
+    $entropyLiteral = ConvertTo-SingleQuotedLiteral -Value $EntropySeedValue
+
+    $template = @'
+$ErrorActionPreference = 'Stop'
+$configPath = __CONFIG_PATH__
+$baseDir = [IO.Path]::GetDirectoryName($configPath)
+$logPath = Join-Path $baseDir 'switch.log'
+$entropy = [Text.Encoding]::UTF8.GetBytes(__ENTROPY_SEED__)
+
+function Write-Log([string]$Message) {
+    try {
+        $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+        Add-Content -LiteralPath $logPath -Value "$timestamp $Message" -Encoding UTF8
+    }
+    catch {
+    }
+}
+
+function Assert-Admin {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+    if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+        throw 'Hotkey listener is not running elevated.'
+    }
+}
+
+function Unprotect-Secret([string]$CipherText) {
+    $cipherBytes = [Convert]::FromBase64String($CipherText)
+    $plainBytes = [Security.Cryptography.ProtectedData]::Unprotect(
+        $cipherBytes,
+        $entropy,
+        [Security.Cryptography.DataProtectionScope]::LocalMachine
+    )
+    return [Text.Encoding]::UTF8.GetString($plainBytes)
+}
+
+try {
+    Assert-Admin
+
+    if (-not (Test-Path -LiteralPath $configPath)) {
+        throw "Missing configuration file: $configPath"
+    }
+
+    $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+    $currentUser = [Environment]::UserName
+
+    if ($currentUser -ieq $config.PrimaryUser) {
+        $targetUser = [string]$config.SecondaryUser
+        $encryptedPassword = [string]$config.SecondaryPasswordEnc
+    }
+    elseif ($currentUser -ieq $config.SecondaryUser) {
+        $targetUser = [string]$config.PrimaryUser
+        $encryptedPassword = [string]$config.PrimaryPasswordEnc
+    }
+    else {
+        throw "Current user '$currentUser' is not part of configured switch pair."
+    }
+
+    $password = Unprotect-Secret -CipherText $encryptedPassword
+    if ([string]::IsNullOrWhiteSpace($password)) {
+        throw 'Target password could not be decrypted.'
+    }
+
+    $domain = if ($config.MachineName) { [string]$config.MachineName } else { $env:COMPUTERNAME }
+    $winlogonPath = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
+
+    Set-ItemProperty -Path $winlogonPath -Name 'AutoAdminLogon' -Type String -Value '1'
+    Set-ItemProperty -Path $winlogonPath -Name 'DefaultUserName' -Type String -Value $targetUser
+    Set-ItemProperty -Path $winlogonPath -Name 'DefaultPassword' -Type String -Value $password
+    Set-ItemProperty -Path $winlogonPath -Name 'DefaultDomainName' -Type String -Value $domain
+
+    Write-Log "Prepared AutoAdminLogon for '$targetUser' (triggered by '$currentUser')."
+    Start-Sleep -Milliseconds 150
+    Start-Process -FilePath shutdown.exe -ArgumentList '/l /f' -WindowStyle Hidden
+}
+catch {
+    Write-Log ("ERROR: " + $_.Exception.Message)
+}
+'@
+
+    $script = $template.Replace('__CONFIG_PATH__', $configLiteral).Replace('__ENTROPY_SEED__', $entropyLiteral)
+    $bytes = [Text.Encoding]::Unicode.GetBytes($script)
+    return [Convert]::ToBase64String($bytes)
+}
+
+function Write-Utf8NoBomFile {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$Content
+    )
+
+    $encoding = New-Object System.Text.UTF8Encoding($false)
+    [IO.File]::WriteAllText($Path, $Content, $encoding)
+}
+
+function Write-ListenerScript {
+    param([Parameter(Mandatory)][string]$Path)
+
+    $content = @'
+#Requires AutoHotkey v2.0
+#SingleInstance Ignore
+
+encodedPath := A_ScriptDir . "\switch-command.b64"
+triggered := false
+
+CheckCombo() {
+    global triggered
+
+    if triggered {
+        return
+    }
+
+    if GetKeyState("Numpad4", "P") && GetKeyState("Numpad5", "P") && GetKeyState("Numpad6", "P") {
+        triggered := true
+        RunSwitch()
+    }
+}
+
+Numpad4::CheckCombo()
+Numpad5::CheckCombo()
+Numpad6::CheckCombo()
+
+Numpad4 Up::ResetTrigger
+Numpad5 Up::ResetTrigger
+Numpad6 Up::ResetTrigger
+
+ResetTrigger(*) {
+    global triggered
+    if !GetKeyState("Numpad4", "P") && !GetKeyState("Numpad5", "P") && !GetKeyState("Numpad6", "P") {
+        triggered := false
+    }
+}
+
+RunSwitch() {
+    global encodedPath
+
+    if !FileExist(encodedPath) {
+        return
+    }
+
+    encoded := Trim(FileRead(encodedPath, "UTF-8"))
+    if (encoded = "") {
+        return
+    }
+
+    if (SubStr(encoded, 1, 1) = Chr(0xFEFF)) {
+        encoded := SubStr(encoded, 2)
+    }
+
+    try {
+        Run("powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand " . encoded, , "Hide")
+    }
+    catch {
+    }
+}
+'@
+
+    Write-Utf8NoBomFile -Path $Path -Content $content
+}
+
+function Stop-ListenerProcesses {
+    param([Parameter(Mandatory)][string]$ScriptPath)
+
+    $scriptName = [IO.Path]::GetFileName($ScriptPath)
+    $scriptPattern = [Regex]::Escape($scriptName)
+    $fullPathPattern = $null
+
+    if (Test-Path -LiteralPath $ScriptPath) {
+        $fullPathPattern = [Regex]::Escape([IO.Path]::GetFullPath($ScriptPath))
+    }
+
+    $processes = Get-CimInstance Win32_Process -Filter "Name LIKE 'AutoHotkey%.exe'" -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.CommandLine -and (
+                ($fullPathPattern -and $_.CommandLine -match $fullPathPattern) -or
+                $_.CommandLine -match $scriptPattern
+            )
+        }
+
+    foreach ($proc in $processes) {
+        Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Remove-TaskIfExists {
+    param([Parameter(Mandatory)][string]$TaskName)
+
+    $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    if (-not $task) {
+        return
+    }
+
+    try {
+        Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    }
+    catch {
+    }
+
+    Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
+}
+
+function Disable-AutoAdminLogon {
+    $path = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
+    if (-not (Test-Path -LiteralPath $path)) {
+        return
+    }
+
+    Set-ItemProperty -Path $path -Name 'AutoAdminLogon' -Type String -Value '0' -ErrorAction SilentlyContinue
+    Remove-ItemProperty -Path $path -Name 'DefaultPassword' -ErrorAction SilentlyContinue
+}
+
+function Register-ListenerTask {
+    param(
+        [Parameter(Mandatory)][string]$TaskName,
+        [Parameter(Mandatory)][string]$AutoHotkeyExe,
+        [Parameter(Mandatory)][string]$ListenerScriptPath
+    )
+
+    $action = New-ScheduledTaskAction -Execute $AutoHotkeyExe -Argument ('"{0}"' -f $ListenerScriptPath)
+    $trigger = New-ScheduledTaskTrigger -AtLogOn
+    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+
+    try {
+        $principal = New-ScheduledTaskPrincipal -GroupId $usersGroupSid -RunLevel Highest
+    }
+    catch {
+        $principal = New-ScheduledTaskPrincipal -GroupId 'Users' -RunLevel Highest
+    }
+
+    Remove-TaskIfExists -TaskName $TaskName
+    Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force -ErrorAction Stop | Out-Null
+}
+
+if (-not (Test-Admin)) {
+    throw 'Run as Administrator.'
+}
+
+if ($Mode -eq 'Uninstall') {
+    Stop-ListenerProcesses -ScriptPath $listenerScriptPath
+
+    $taskNames = @($listenerTaskName)
+    $taskNames += (Get-ScheduledTask -ErrorAction SilentlyContinue |
         Where-Object { $_.TaskName -like 'InstantLoginSwitcher-Hotkey-*' } |
         Select-Object -ExpandProperty TaskName)
 
-    foreach ($taskName in $knownTasks | Select-Object -Unique) {
+    foreach ($taskName in $taskNames | Select-Object -Unique) {
         Remove-TaskIfExists -TaskName $taskName
     }
 
-    Stop-ListenerProcesses -InstallPath $installDir
+    Disable-AutoAdminLogon
 
-    if (Test-Path $installDir) {
-        Start-Sleep -Milliseconds 300
-        Remove-Item -Path $installDir -Recurse -Force
+    if (Test-Path -LiteralPath $installDir) {
+        Remove-Item -LiteralPath $installDir -Recurse -Force
     }
 
     Write-Host 'InstantLoginSwitcher removed.'
-    exit 0
+    return
 }
 
 if ([string]::IsNullOrWhiteSpace($PrimaryUser) -or [string]::IsNullOrWhiteSpace($SecondaryUser)) {
-    throw 'Both -PrimaryUser and -SecondaryUser are required unless using -Uninstall.'
+    throw 'Both PrimaryUser and SecondaryUser are required for install.'
 }
 
 $primaryAccount = Resolve-LocalAccount -InputName $PrimaryUser
 $secondaryAccount = Resolve-LocalAccount -InputName $SecondaryUser
 
-$ahkExe = Join-Path ${env:ProgramFiles} 'AutoHotkey\v2\AutoHotkey64.exe'
-if (-not (Test-Path $ahkExe)) {
-    throw "AutoHotkey v2 not found at '$ahkExe'. Install AutoHotkey v2 first."
+if ($primaryAccount.UserName -eq $secondaryAccount.UserName) {
+    throw 'Primary and secondary users must be different.'
 }
 
-Import-Module (Join-Path $PSScriptRoot 'CredentialStore.psm1') -Force
+$ahkExe = Get-AutoHotkeyExecutable
+if (-not $ahkExe) {
+    throw 'AutoHotkey v2 was not found. Install AutoHotkey v2 first.'
+}
 
-$primaryPassword = Read-Host "Password for $($primaryAccount.Qualified)" -AsSecureString
-$secondaryPassword = Read-Host "Password for $($secondaryAccount.Qualified)" -AsSecureString
+$primaryPasswordSecure = Read-Host "Password for $($primaryAccount.Qualified)" -AsSecureString
+$secondaryPasswordSecure = Read-Host "Password for $($secondaryAccount.Qualified)" -AsSecureString
 
-Write-StoredCredential -Target "InstantLoginSwitcher:$($primaryAccount.UserName)" -UserName $primaryAccount.Qualified -Password $primaryPassword
-Write-StoredCredential -Target "InstantLoginSwitcher:$($secondaryAccount.UserName)" -UserName $secondaryAccount.Qualified -Password $secondaryPassword
+$primaryPasswordPlain = Convert-SecureStringToPlainText -SecureString $primaryPasswordSecure
+$secondaryPasswordPlain = Convert-SecureStringToPlainText -SecureString $secondaryPasswordSecure
+
+$entropy = [Text.Encoding]::UTF8.GetBytes($entropySeed)
+$primaryPasswordEncrypted = Protect-PlainTextLocalMachine -PlainText $primaryPasswordPlain -Entropy $entropy
+$secondaryPasswordEncrypted = Protect-PlainTextLocalMachine -PlainText $secondaryPasswordPlain -Entropy $entropy
 
 New-Item -Path $installDir -ItemType Directory -Force | Out-Null
-Copy-Item -Path (Join-Path $PSScriptRoot 'Switch-Login.ps1') -Destination (Join-Path $installDir 'Switch-Login.ps1') -Force
-Copy-Item -Path (Join-Path $PSScriptRoot 'CredentialStore.psm1') -Destination (Join-Path $installDir 'CredentialStore.psm1') -Force
 
-$template = Get-Content (Join-Path $PSScriptRoot 'InstantLoginSwitcher.ahk') -Raw
-$template = $template.Replace('__PRIMARY_USER__', $primaryAccount.UserName).Replace('__SECONDARY_USER__', $secondaryAccount.UserName)
-$ahkScriptPath = Join-Path $installDir 'InstantLoginSwitcher.ahk'
-Set-Content -Path $ahkScriptPath -Value $template -Encoding UTF8
+$config = [pscustomobject]@{
+    Version              = 2
+    PrimaryUser          = $primaryAccount.UserName
+    SecondaryUser        = $secondaryAccount.UserName
+    PrimaryQualifiedUser = $primaryAccount.Qualified
+    SecondaryQualifiedUser = $secondaryAccount.Qualified
+    PrimaryPasswordEnc   = $primaryPasswordEncrypted
+    SecondaryPasswordEnc = $secondaryPasswordEncrypted
+    MachineName          = $env:COMPUTERNAME
+    UpdatedAtUtc         = [DateTime]::UtcNow.ToString('o')
+}
 
-$action = New-ScheduledTaskAction -Execute $ahkExe -Argument ('"{0}"' -f $ahkScriptPath)
-$trigger = New-ScheduledTaskTrigger -AtLogOn
-$principal = New-ScheduledTaskPrincipal -GroupId 'Users' -RunLevel Highest
-$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+$config | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $configPath -Encoding UTF8
 
-Register-ScheduledTask -TaskName $listenerTaskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force -ErrorAction Stop | Out-Null
+$encodedCommand = New-EncodedSwitchCommand -ConfigFilePath $configPath -EntropySeedValue $entropySeed
+Write-Utf8NoBomFile -Path $encodedSwitchPath -Content $encodedCommand
+
+Write-ListenerScript -Path $listenerScriptPath
+Stop-ListenerProcesses -ScriptPath $listenerScriptPath
+Register-ListenerTask -TaskName $listenerTaskName -AutoHotkeyExe $ahkExe -ListenerScriptPath $listenerScriptPath
+
+try {
+    Start-ScheduledTask -TaskName $listenerTaskName -ErrorAction SilentlyContinue
+}
+catch {
+}
+
+$primaryPasswordPlain = $null
+$secondaryPasswordPlain = $null
 
 Write-Host "Resolved primary account: $($primaryAccount.Qualified)"
 Write-Host "Resolved secondary account: $($secondaryAccount.Qualified)"
-Write-Host "Scheduled task: $listenerTaskName"
-Write-Host 'InstantLoginSwitcher is installed.'
+Write-Host "Listener task: $listenerTaskName"
+Write-Host 'InstantLoginSwitcher installed.'
 Write-Host 'Hotkey: Numpad4 + Numpad5 + Numpad6'

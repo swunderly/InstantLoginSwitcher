@@ -1,35 +1,25 @@
 #Requires AutoHotkey v2.0
-#SingleInstance Force
+#SingleInstance Ignore
 
-primaryUser := "__PRIMARY_USER__"
-secondaryUser := "__SECONDARY_USER__"
-scriptPath := A_ScriptDir "\\Switch-Login.ps1"
-
+encodedPath := A_ScriptDir . "\switch-command.b64"
 triggered := false
 
-Numpad4:: {
+CheckCombo() {
     global triggered
-    if GetKeyState("Numpad5", "P") && GetKeyState("Numpad6", "P") && !triggered {
+
+    if triggered {
+        return
+    }
+
+    if GetKeyState("Numpad4", "P") && GetKeyState("Numpad5", "P") && GetKeyState("Numpad6", "P") {
         triggered := true
         RunSwitch()
     }
 }
 
-Numpad5:: {
-    global triggered
-    if GetKeyState("Numpad4", "P") && GetKeyState("Numpad6", "P") && !triggered {
-        triggered := true
-        RunSwitch()
-    }
-}
-
-Numpad6:: {
-    global triggered
-    if GetKeyState("Numpad4", "P") && GetKeyState("Numpad5", "P") && !triggered {
-        triggered := true
-        RunSwitch()
-    }
-}
+Numpad4::CheckCombo()
+Numpad5::CheckCombo()
+Numpad6::CheckCombo()
 
 Numpad4 Up::ResetTrigger
 Numpad5 Up::ResetTrigger
@@ -43,12 +33,24 @@ ResetTrigger(*) {
 }
 
 RunSwitch() {
-    global scriptPath, primaryUser, secondaryUser
-    cmd := Format(
-        "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"{1}\" -PrimaryUser \"{2}\" -SecondaryUser \"{3}\"",
-        scriptPath,
-        primaryUser,
-        secondaryUser
-    )
-    Run(cmd, , "Hide")
+    global encodedPath
+
+    if !FileExist(encodedPath) {
+        return
+    }
+
+    encoded := Trim(FileRead(encodedPath, "UTF-8"))
+    if (encoded = "") {
+        return
+    }
+
+    if (SubStr(encoded, 1, 1) = Chr(0xFEFF)) {
+        encoded := SubStr(encoded, 2)
+    }
+
+    try {
+        Run("powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand " . encoded, , "Hide")
+    }
+    catch {
+    }
 }
