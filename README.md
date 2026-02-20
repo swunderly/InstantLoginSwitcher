@@ -68,6 +68,9 @@ You should see the listener task present.
   - Check task exists with `schtasks /Query /TN "InstantLoginSwitcher-Hotkey-Listener"`.
   - Confirm AutoHotkey is running after login with `Get-Process AutoHotkey64`.
   - Open Task Scheduler and confirm Last Run Result is `0x0`.
+- **Uninstall fails with "file is being used by another process"**:
+  - The setup script now stops the running listener before uninstall/reinstall.
+  - If you still hit it, run `Get-Process AutoHotkey64,AutoHotkey -ErrorAction SilentlyContinue | Stop-Process -Force` then retry `-Uninstall`.
 - **Wrong password after account password change**:
   - Rerun setup script and provide new passwords.
 

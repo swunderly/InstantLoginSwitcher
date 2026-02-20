@@ -25,6 +25,24 @@ function Remove-TaskIfExists {
     }
 }
 
+function Stop-ListenerProcesses {
+    param([Parameter(Mandatory)][string]$ScriptPath)
+
+    $normalizedScriptPath = [IO.Path]::GetFullPath($ScriptPath).ToLowerInvariant()
+    $ahkProcessNames = @('AutoHotkey64.exe', 'AutoHotkey.exe')
+
+    $running = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+        Where-Object {
+            $ahkProcessNames -contains $_.Name -and
+            $_.CommandLine -and
+            $_.CommandLine.ToLowerInvariant().Contains($normalizedScriptPath)
+        }
+
+    foreach ($proc in $running) {
+        Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Resolve-LocalAccount {
     param([Parameter(Mandatory)][string]$InputName)
 
@@ -59,6 +77,9 @@ if (-not (Test-Admin)) {
 }
 
 if ($Uninstall) {
+    $listenerScriptPath = Join-Path $installDir 'InstantLoginSwitcher.ahk'
+    Stop-ListenerProcesses -ScriptPath $listenerScriptPath
+
     $knownTasks = @($listenerTaskName)
     $knownTasks += (Get-ScheduledTask -ErrorAction SilentlyContinue |
         Where-Object { $_.TaskName -like 'InstantLoginSwitcher-Hotkey-*' } |
@@ -103,6 +124,9 @@ Copy-Item -Path (Join-Path $PSScriptRoot 'CredentialStore.psm1') -Destination (J
 $template = Get-Content (Join-Path $PSScriptRoot 'InstantLoginSwitcher.ahk') -Raw
 $template = $template.Replace('__PRIMARY_USER__', $primaryAccount.UserName).Replace('__SECONDARY_USER__', $secondaryAccount.UserName)
 $ahkScriptPath = Join-Path $installDir 'InstantLoginSwitcher.ahk'
+
+Stop-ListenerProcesses -ScriptPath $ahkScriptPath
+
 Set-Content -Path $ahkScriptPath -Value $template -Encoding UTF8
 
 $action = New-ScheduledTaskAction -Execute $ahkExe -Argument ('"{0}"' -f $ahkScriptPath)
