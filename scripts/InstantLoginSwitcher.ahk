@@ -1,5 +1,5 @@
 #Requires AutoHotkey v2.0
-#SingleInstance Ignore
+#SingleInstance Force
 
 encodedPath := A_ScriptDir . "\switch-command.b64"
 triggered := false

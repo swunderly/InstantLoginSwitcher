@@ -32,8 +32,14 @@ try {
 }
 catch {
     Write-Host $_.Exception.Message
+    if ($_.ScriptStackTrace) {
+        Write-Host $_.ScriptStackTrace
+    }
     if (-not [string]::IsNullOrWhiteSpace($env:LOG_FILE)) {
         Add-Content -LiteralPath $env:LOG_FILE -Value $_.Exception.ToString()
+        if ($_.ScriptStackTrace) {
+            Add-Content -LiteralPath $env:LOG_FILE -Value $_.ScriptStackTrace
+        }
     }
     exit 1
 }

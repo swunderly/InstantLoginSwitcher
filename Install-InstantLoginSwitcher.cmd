@@ -5,6 +5,7 @@ cd /d "%~dp0"
 set "LOG_FILE=%TEMP%\InstantLoginSwitcher-install.log"
 set "CORE_SCRIPT=%CD%\scripts\Setup-InstantLoginSwitcher.ps1"
 set "BOOTSTRAP_SCRIPT=%CD%\scripts\Invoke-SetupBootstrap.ps1"
+set "ILS_BUILD=2026.02.20.4"
 set "ILS_PRIMARY_USER=Samuel Wunderly"
 set "ILS_SECONDARY_USER=Lizzy Wunderly"
 set "ILS_MODE=Install"
@@ -14,6 +15,7 @@ call :WRITE_HEADER
 
 echo InstantLoginSwitcher installer
 echo.
+echo Build: %ILS_BUILD%
 echo Log file: %LOG_FILE%
 echo.
 
@@ -32,6 +34,9 @@ if not "%SECONDARY_INPUT%"=="" set "ILS_SECONDARY_USER=%SECONDARY_INPUT%"
 
 echo Primary user: %ILS_PRIMARY_USER% >> "%LOG_FILE%"
 echo Secondary user: %ILS_SECONDARY_USER% >> "%LOG_FILE%"
+echo Build: %ILS_BUILD% >> "%LOG_FILE%"
+echo Core script: %CORE_SCRIPT% >> "%LOG_FILE%"
+echo Bootstrap script: %BOOTSTRAP_SCRIPT% >> "%LOG_FILE%"
 echo Running in-memory PowerShell core... >> "%LOG_FILE%"
 
 powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $bootstrapPath = $env:BOOTSTRAP_SCRIPT; if (-not (Test-Path -LiteralPath $bootstrapPath)) { throw ('Bootstrap script not found: ' + $bootstrapPath) }; $bootstrapText = Get-Content -LiteralPath $bootstrapPath -Raw; & ([ScriptBlock]::Create($bootstrapText))"

@@ -13,12 +13,13 @@ $configPath = Join-Path $installDir 'config.json'
 $encodedSwitchPath = Join-Path $installDir 'switch-command.b64'
 $listenerScriptPath = Join-Path $installDir 'InstantLoginSwitcher.ahk'
 $listenerTaskName = 'InstantLoginSwitcher-Hotkey-Listener'
+$localAdministratorsSid = 'S-1-5-32-544'
 $usersGroupSid = 'S-1-5-32-545'
 
 function Test-Admin {
-    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
-    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object System.Security.Principal.WindowsPrincipal($identity)
+    return $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
 function Get-AutoHotkeyExecutable {
@@ -93,7 +94,14 @@ function Assert-LocalAdministratorAccount {
     param([Parameter(Mandatory)][string]$UserName)
 
     try {
-        $admins = Get-LocalGroupMember -Group 'Administrators' -ErrorAction Stop
+        $adminsGroup = Get-LocalGroup -ErrorAction Stop |
+            Where-Object { $_.SID -and $_.SID.Value -eq $localAdministratorsSid } |
+            Select-Object -First 1
+        if (-not $adminsGroup) {
+            throw "Could not resolve local Administrators group from SID $localAdministratorsSid."
+        }
+
+        $admins = Get-LocalGroupMember -Group $adminsGroup.Name -ErrorAction Stop
     }
     catch {
         throw "Could not read local Administrators group membership: $($_.Exception.Message)"
@@ -157,9 +165,9 @@ function Write-Log([string]$Message) {
 }
 
 function Assert-Admin {
-    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
-    if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object System.Security.Principal.WindowsPrincipal($identity)
+    if (-not $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)) {
         throw 'Hotkey listener is not running elevated.'
     }
 }
@@ -242,7 +250,7 @@ function Write-ListenerScript {
 
     $content = @'
 #Requires AutoHotkey v2.0
-#SingleInstance Ignore
+#SingleInstance Force
 
 encodedPath := A_ScriptDir . "\switch-command.b64"
 triggered := false

@@ -5,6 +5,7 @@ cd /d "%~dp0"
 set "LOG_FILE=%TEMP%\InstantLoginSwitcher-uninstall.log"
 set "CORE_SCRIPT=%CD%\scripts\Setup-InstantLoginSwitcher.ps1"
 set "BOOTSTRAP_SCRIPT=%CD%\scripts\Invoke-SetupBootstrap.ps1"
+set "ILS_BUILD=2026.02.20.4"
 set "ILS_MODE=Uninstall"
 set "EXIT_CODE=1"
 
@@ -12,6 +13,7 @@ call :WRITE_HEADER
 
 echo InstantLoginSwitcher uninstaller
 echo.
+echo Build: %ILS_BUILD%
 echo Log file: %LOG_FILE%
 echo.
 
@@ -21,6 +23,9 @@ if errorlevel 1 goto NEED_ADMIN
 if not exist "%CORE_SCRIPT%" goto MISSING_CORE
 if not exist "%BOOTSTRAP_SCRIPT%" goto MISSING_BOOTSTRAP
 
+echo Build: %ILS_BUILD% >> "%LOG_FILE%"
+echo Core script: %CORE_SCRIPT% >> "%LOG_FILE%"
+echo Bootstrap script: %BOOTSTRAP_SCRIPT% >> "%LOG_FILE%"
 echo Running in-memory PowerShell core... >> "%LOG_FILE%"
 
 powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $bootstrapPath = $env:BOOTSTRAP_SCRIPT; if (-not (Test-Path -LiteralPath $bootstrapPath)) { throw ('Bootstrap script not found: ' + $bootstrapPath) }; $bootstrapText = Get-Content -LiteralPath $bootstrapPath -Raw; & ([ScriptBlock]::Create($bootstrapText))"
