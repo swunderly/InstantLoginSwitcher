@@ -131,10 +131,10 @@ function Protect-PlainTextLocalMachine {
     )
 
     $plainBytes = [Text.Encoding]::UTF8.GetBytes($PlainText)
-    $protected = [Security.Cryptography.ProtectedData]::Protect(
+    $protected = [System.Security.Cryptography.ProtectedData]::Protect(
         $plainBytes,
         $Entropy,
-        [Security.Cryptography.DataProtectionScope]::LocalMachine
+        [System.Security.Cryptography.DataProtectionScope]::LocalMachine
     )
     return [Convert]::ToBase64String($protected)
 }
@@ -179,10 +179,10 @@ function Assert-Admin {
 
 function Unprotect-Secret([string]$CipherText) {
     $cipherBytes = [Convert]::FromBase64String($CipherText)
-    $plainBytes = [Security.Cryptography.ProtectedData]::Unprotect(
+    $plainBytes = [System.Security.Cryptography.ProtectedData]::Unprotect(
         $cipherBytes,
         $entropy,
-        [Security.Cryptography.DataProtectionScope]::LocalMachine
+        [System.Security.Cryptography.DataProtectionScope]::LocalMachine
     )
     return [Text.Encoding]::UTF8.GetString($plainBytes)
 }
