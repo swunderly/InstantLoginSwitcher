@@ -1,4 +1,5 @@
 $ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
 
 try {
     $scriptPath = $env:CORE_SCRIPT
@@ -11,7 +12,7 @@ try {
     }
 
     $scriptText = Get-Content -LiteralPath $scriptPath -Raw
-    $core = [ScriptBlock]::Create($scriptText)
+    $core = [System.Management.Automation.ScriptBlock]::Create($scriptText)
 
     $mode = $env:ILS_MODE
     if ([string]::IsNullOrWhiteSpace($mode)) {

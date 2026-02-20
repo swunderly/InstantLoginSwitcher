@@ -120,13 +120,13 @@ function Assert-LocalAdministratorAccount {
 function Convert-SecureStringToPlainText {
     param([Parameter(Mandatory)][SecureString]$SecureString)
 
-    $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecureString)
+    $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecureString)
     try {
-        return [Runtime.InteropServices.Marshal]::PtrToStringUni($bstr)
+        return [System.Runtime.InteropServices.Marshal]::PtrToStringUni($bstr)
     }
     finally {
-        if ($bstr -ne [IntPtr]::Zero) {
-            [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+        if ($bstr -ne [System.IntPtr]::Zero) {
+            [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
         }
     }
 }
@@ -135,8 +135,8 @@ function Protect-PlainTextLocalMachine {
     param([Parameter(Mandatory)][string]$PlainText)
 
     # Keep storage format portable across Windows PowerShell builds by avoiding DPAPI type dependencies.
-    $plainBytes = [Text.Encoding]::UTF8.GetBytes($PlainText)
-    return 'B64:' + [Convert]::ToBase64String($plainBytes)
+    $plainBytes = [System.Text.Encoding]::UTF8.GetBytes($PlainText)
+    return 'B64:' + [System.Convert]::ToBase64String($plainBytes)
 }
 
 function ConvertTo-SingleQuotedLiteral {
@@ -152,7 +152,7 @@ function New-EncodedSwitchCommand {
     $template = @'
 $ErrorActionPreference = 'Stop'
 $configPath = __CONFIG_PATH__
-$baseDir = [IO.Path]::GetDirectoryName($configPath)
+$baseDir = [System.IO.Path]::GetDirectoryName($configPath)
 $logPath = Join-Path $baseDir 'switch.log'
 
 function Write-Log([string]$Message) {
@@ -182,8 +182,8 @@ function Unprotect-Secret([string]$CipherText) {
         $payload = $CipherText.Substring(4)
     }
 
-    $plainBytes = [Convert]::FromBase64String($payload)
-    return [Text.Encoding]::UTF8.GetString($plainBytes)
+    $plainBytes = [System.Convert]::FromBase64String($payload)
+    return [System.Text.Encoding]::UTF8.GetString($plainBytes)
 }
 
 try {
@@ -194,7 +194,7 @@ try {
     }
 
     $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
-    $currentUser = [Environment]::UserName
+    $currentUser = [System.Environment]::UserName
 
     if ($currentUser -ieq $config.PrimaryUser) {
         $targetUser = [string]$config.SecondaryUser
@@ -231,8 +231,8 @@ catch {
 '@
 
     $script = $template.Replace('__CONFIG_PATH__', $configLiteral)
-    $bytes = [Text.Encoding]::Unicode.GetBytes($script)
-    return [Convert]::ToBase64String($bytes)
+    $bytes = [System.Text.Encoding]::Unicode.GetBytes($script)
+    return [System.Convert]::ToBase64String($bytes)
 }
 
 function Write-Utf8NoBomFile {
@@ -242,7 +242,7 @@ function Write-Utf8NoBomFile {
     )
 
     $encoding = New-Object System.Text.UTF8Encoding($false)
-    [IO.File]::WriteAllText($Path, $Content, $encoding)
+    [System.IO.File]::WriteAllText($Path, $Content, $encoding)
 }
 
 function Write-ListenerScript {
@@ -313,12 +313,12 @@ RunSwitch() {
 function Stop-ListenerProcesses {
     param([Parameter(Mandatory)][string]$ScriptPath)
 
-    $scriptName = [IO.Path]::GetFileName($ScriptPath)
-    $scriptPattern = [Regex]::Escape($scriptName)
+    $scriptName = [System.IO.Path]::GetFileName($ScriptPath)
+    $scriptPattern = [System.Text.RegularExpressions.Regex]::Escape($scriptName)
     $fullPathPattern = $null
 
     if (Test-Path -LiteralPath $ScriptPath) {
-        $fullPathPattern = [Regex]::Escape([IO.Path]::GetFullPath($ScriptPath))
+        $fullPathPattern = [System.Text.RegularExpressions.Regex]::Escape([System.IO.Path]::GetFullPath($ScriptPath))
     }
 
     $processes = Get-CimInstance Win32_Process -Filter "Name LIKE 'AutoHotkey%.exe'" -ErrorAction SilentlyContinue |
@@ -458,7 +458,7 @@ $config = [pscustomobject]@{
     PrimaryPasswordEnc   = $primaryPasswordEncrypted
     SecondaryPasswordEnc = $secondaryPasswordEncrypted
     MachineName          = $env:COMPUTERNAME
-    UpdatedAtUtc         = [DateTime]::UtcNow.ToString('o')
+    UpdatedAtUtc         = [System.DateTime]::UtcNow.ToString('o')
 }
 
 $config | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $configPath -Encoding UTF8
