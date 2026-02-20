@@ -229,11 +229,13 @@ try {
     $winlogonPath = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
 
     Set-ItemProperty -Path $winlogonPath -Name 'AutoAdminLogon' -Type String -Value '1'
+    Set-ItemProperty -Path $winlogonPath -Name 'ForceAutoLogon' -Type String -Value '1'
     Set-ItemProperty -Path $winlogonPath -Name 'DefaultUserName' -Type String -Value $targetUser
     Set-ItemProperty -Path $winlogonPath -Name 'DefaultPassword' -Type String -Value $password
     Set-ItemProperty -Path $winlogonPath -Name 'DefaultDomainName' -Type String -Value $domain
+    Remove-ItemProperty -Path $winlogonPath -Name 'AutoLogonCount' -ErrorAction SilentlyContinue
 
-    Write-Log "Prepared AutoAdminLogon for '$targetUser' (triggered by '$currentUser')."
+    Write-Log "Prepared AutoAdminLogon+ForceAutoLogon for '$targetUser' (triggered by '$currentUser')."
     Start-Sleep -Milliseconds 150
     Start-Process -FilePath shutdown.exe -ArgumentList '/l /f' -WindowStyle Hidden
 }
@@ -370,9 +372,11 @@ function Disable-AutoAdminLogon {
     }
 
     Set-ItemProperty -Path $path -Name 'AutoAdminLogon' -Type String -Value '0' -ErrorAction SilentlyContinue
+    Set-ItemProperty -Path $path -Name 'ForceAutoLogon' -Type String -Value '0' -ErrorAction SilentlyContinue
     Remove-ItemProperty -Path $path -Name 'DefaultPassword' -ErrorAction SilentlyContinue
     Remove-ItemProperty -Path $path -Name 'DefaultUserName' -ErrorAction SilentlyContinue
     Remove-ItemProperty -Path $path -Name 'DefaultDomainName' -ErrorAction SilentlyContinue
+    Remove-ItemProperty -Path $path -Name 'AutoLogonCount' -ErrorAction SilentlyContinue
 }
 
 function Register-ListenerTask {
