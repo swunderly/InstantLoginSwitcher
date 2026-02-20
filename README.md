@@ -1,70 +1,57 @@
 # InstantLoginSwitcher
 
-Windows 11 two-user hotkey switcher.
+One-hotkey local user switching for Windows 11.
 
-## What it does
+## How it works
 
-- Starts a background hotkey listener at login.
-- Hotkey is **Numpad4 + Numpad5 + Numpad6** pressed together.
-- When triggered:
-  - Detects the current logged-in user from the configured pair.
-  - Configures AutoAdminLogon for the other user.
-  - Forces logout.
-  - Windows immediately starts signing in the other user.
+When you press **Numpad4 + Numpad5 + Numpad6** together:
 
-This is not Fast User Switching. It is a forced logout + immediate autologon to the paired account.
+1. The tool detects which configured user is currently logged in.
+2. It sets Windows AutoAdminLogon for the other configured user.
+3. It force-logs out the current user.
+4. Windows immediately begins signing in the other user.
 
-## Important requirements
+This is a forced logout + automatic sign-in to the paired account.  
+It is not Fast User Switching.
 
-- AutoHotkey v2 must be installed.
-- Installer/uninstaller must run as Administrator.
-- The user session running the listener must have rights to set:
-  - `HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon`
+## Requirements
 
-## Files
+- Windows 11
+- AutoHotkey v2 installed
+- Local Administrator rights for install/uninstall
+- Two local Windows accounts to switch between
 
-- `Install-InstantLoginSwitcher.cmd` - one-click installer.
-- `Uninstall-InstantLoginSwitcher.cmd` - one-click uninstaller.
-- `scripts/Setup-InstantLoginSwitcher.ps1` - core logic called in-memory by the `.cmd` wrappers.
-- `scripts/InstantLoginSwitcher.ahk` - listener template script.
+## Install
 
-## Install (recommended)
-
-1. Download ZIP from GitHub.
-2. Unzip anywhere.
-3. Install AutoHotkey v2 if needed.
-4. Double-click `Install-InstantLoginSwitcher.cmd`.
-5. If prompted, right-click and run it as Administrator.
-6. Enter the two local account names and passwords.
-7. Sign out and back in once.
-8. Press **Numpad4 + Numpad5 + Numpad6** together.
+1. Download this repository ZIP from GitHub.
+2. Unzip it anywhere.
+3. Install AutoHotkey v2 (if not already installed).
+4. Right-click `Install-InstantLoginSwitcher.cmd` and choose **Run as administrator**.
+5. Enter the two account names and passwords when prompted.
+6. Sign out and sign back in once.
+7. Test the hotkey: **Numpad4 + Numpad5 + Numpad6**.
 
 ## Uninstall
 
-1. Double-click `Uninstall-InstantLoginSwitcher.cmd`.
-2. If prompted, right-click and run it as Administrator.
+1. Right-click `Uninstall-InstantLoginSwitcher.cmd` and choose **Run as administrator**.
 
 Uninstall removes:
 
-- Scheduled task listener.
-- Installed runtime folder at `C:\ProgramData\InstantLoginSwitcher`.
-- AutoAdminLogon password value.
+- Scheduled task `InstantLoginSwitcher-Hotkey-Listener`
+- Installed runtime files in `C:\ProgramData\InstantLoginSwitcher`
+- AutoAdminLogon password value
 
 ## Troubleshooting
 
-- **Black console window appears then disappears**:
-  - Use right-click -> **Run as administrator**.
-  - Install log: `%TEMP%\InstantLoginSwitcher-install.log`
-  - Uninstall log: `%TEMP%\InstantLoginSwitcher-uninstall.log`
-- **"Unknown publisher / unknown developer" warning**:
-  - Expected for unsigned local scripts. Choose **Run anyway**.
-- **PowerShell says script is not digitally signed**:
-  - Use the `.cmd` files only.
-  - They execute setup logic in-memory and do not require direct `-File` execution of `.ps1`.
-- **Hotkey does nothing**:
+- Console opens then closes:
+  - Run as admin using right-click.
+  - Check logs:
+    - `%TEMP%\InstantLoginSwitcher-install.log`
+    - `%TEMP%\InstantLoginSwitcher-uninstall.log`
+- Script signing errors in PowerShell:
+  - Use the `.cmd` files above. Do not run `.ps1` directly.
+- Hotkey does nothing:
   - Check task exists:
     - `schtasks /Query /TN "InstantLoginSwitcher-Hotkey-Listener"`
-  - Check log file:
+  - Check switch log:
     - `C:\ProgramData\InstantLoginSwitcher\switch.log`
-  - Confirm AutoHotkey is running:
-    - `Get-Process AutoHotkey64`
