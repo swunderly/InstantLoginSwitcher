@@ -35,7 +35,7 @@ if not exist "%CORE_SCRIPT%" (
 
 echo Running in-memory PowerShell core... >> "%LOG_FILE%"
 
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; try { $scriptPath = $env:CORE_SCRIPT; $scriptText = Get-Content -LiteralPath $scriptPath -Raw; $core = [ScriptBlock]::Create($scriptText); & $core -Mode Uninstall; exit 0 } catch { $_ | Out-String | Write-Host; $_ | Out-String | Out-File -FilePath $env:LOG_FILE -Append -Encoding utf8; exit 1 }" >> "%LOG_FILE%" 2>&1
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; try { $scriptPath = $env:CORE_SCRIPT; $scriptText = Get-Content -LiteralPath $scriptPath -Raw; $core = [ScriptBlock]::Create($scriptText); & $core -Mode Uninstall; exit 0 } catch { Write-Host $_.Exception.Message; Add-Content -LiteralPath $env:LOG_FILE -Value $_.Exception.ToString(); exit 1 }" >> "%LOG_FILE%" 2>&1
 
 set "EXIT_CODE=%errorlevel%"
 echo PowerShell exit code: %EXIT_CODE% >> "%LOG_FILE%"
