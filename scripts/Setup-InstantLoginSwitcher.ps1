@@ -15,7 +15,7 @@ $listenerScriptPath = Join-Path $installDir 'InstantLoginSwitcher.ahk'
 $listenerTaskPrefix = 'InstantLoginSwitcher-Hotkey'
 $legacyListenerTaskName = 'InstantLoginSwitcher-Hotkey-Listener'
 $localAdministratorsSid = 'S-1-5-32-544'
-$defaultSwitchMode = 'Restart'
+$defaultSwitchMode = 'Logoff'
 
 function Test-Admin {
     $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
@@ -328,13 +328,14 @@ try {
         }
     }
 
-    $switchMode = if ($config.SwitchMode) { [string]$config.SwitchMode } else { 'Restart' }
-    if ($switchMode -ieq 'Logoff') {
-        $shutdownArgs = '/l /f'
-    }
-    else {
+    $switchMode = if ($config.SwitchMode) { [string]$config.SwitchMode } else { 'Logoff' }
+    if ($switchMode -ieq 'Restart') {
         $shutdownArgs = '/r /f /t 0'
         $switchMode = 'Restart'
+    }
+    else {
+        $shutdownArgs = '/l /f'
+        $switchMode = 'Logoff'
     }
 
     Write-Log "Prepared AutoAdminLogon+ForceAutoLogon for '$targetUser' (triggered by '$currentUser')."

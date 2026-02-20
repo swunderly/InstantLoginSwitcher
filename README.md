@@ -8,10 +8,10 @@ When you press **Numpad4 + Numpad5 + Numpad6** together:
 
 1. The tool detects which configured user is currently logged in.
 2. It sets Windows AutoAdminLogon for the other configured user.
-3. It force-restarts Windows for a reliable handoff.
+3. It force-logs out the current user.
 4. Windows immediately begins signing in the other user.
 
-This is a forced restart + automatic sign-in to the paired account.  
+This is a forced logoff + automatic sign-in to the paired account.  
 It is not Fast User Switching.
 
 ## Requirements
