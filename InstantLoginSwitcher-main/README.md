@@ -34,7 +34,7 @@ This is not Fast User Switching. It is a forced logout + immediate autologon to 
 2. Unzip anywhere.
 3. Install AutoHotkey v2 if needed.
 4. Double-click `Install-InstantLoginSwitcher.cmd`.
-5. Accept the Windows elevation prompt.
+5. If prompted, right-click and run it as Administrator.
 6. Enter the two local account names and passwords.
 7. Sign out and back in once.
 8. Press **Numpad4 + Numpad5 + Numpad6** together.
@@ -42,7 +42,7 @@ This is not Fast User Switching. It is a forced logout + immediate autologon to 
 ## Uninstall
 
 1. Double-click `Uninstall-InstantLoginSwitcher.cmd`.
-2. Accept the Windows elevation prompt.
+2. If prompted, right-click and run it as Administrator.
 
 Uninstall removes:
 
@@ -53,7 +53,9 @@ Uninstall removes:
 ## Troubleshooting
 
 - **Black console window appears then disappears**:
-  - Run `Install-InstantLoginSwitcher.cmd` by right-clicking and selecting **Run as administrator**.
+  - Use right-click -> **Run as administrator**.
+  - Install log: `%TEMP%\InstantLoginSwitcher-install.log`
+  - Uninstall log: `%TEMP%\InstantLoginSwitcher-uninstall.log`
 - **"Unknown publisher / unknown developer" warning**:
   - Expected for unsigned local scripts. Choose **Run anyway**.
 - **PowerShell says script is not digitally signed**:
