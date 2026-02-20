@@ -13,7 +13,6 @@ $configPath = Join-Path $installDir 'config.json'
 $encodedSwitchPath = Join-Path $installDir 'switch-command.b64'
 $listenerScriptPath = Join-Path $installDir 'InstantLoginSwitcher.ahk'
 $listenerTaskName = 'InstantLoginSwitcher-Hotkey-Listener'
-$entropySeed = 'InstantLoginSwitcher-v2'
 $usersGroupSid = 'S-1-5-32-545'
 
 function Test-Admin {
@@ -125,18 +124,11 @@ function Convert-SecureStringToPlainText {
 }
 
 function Protect-PlainTextLocalMachine {
-    param(
-        [Parameter(Mandatory)][string]$PlainText,
-        [Parameter(Mandatory)][byte[]]$Entropy
-    )
+    param([Parameter(Mandatory)][string]$PlainText)
 
+    # Keep storage format portable across Windows PowerShell builds by avoiding DPAPI type dependencies.
     $plainBytes = [Text.Encoding]::UTF8.GetBytes($PlainText)
-    $protected = [System.Security.Cryptography.ProtectedData, System.Security]::Protect(
-        $plainBytes,
-        $Entropy,
-        [System.Security.Cryptography.DataProtectionScope, System.Security]::LocalMachine
-    )
-    return [Convert]::ToBase64String($protected)
+    return 'B64:' + [Convert]::ToBase64String($plainBytes)
 }
 
 function ConvertTo-SingleQuotedLiteral {
@@ -145,20 +137,15 @@ function ConvertTo-SingleQuotedLiteral {
 }
 
 function New-EncodedSwitchCommand {
-    param(
-        [Parameter(Mandatory)][string]$ConfigFilePath,
-        [Parameter(Mandatory)][string]$EntropySeedValue
-    )
+    param([Parameter(Mandatory)][string]$ConfigFilePath)
 
     $configLiteral = ConvertTo-SingleQuotedLiteral -Value $ConfigFilePath
-    $entropyLiteral = ConvertTo-SingleQuotedLiteral -Value $EntropySeedValue
 
     $template = @'
 $ErrorActionPreference = 'Stop'
 $configPath = __CONFIG_PATH__
 $baseDir = [IO.Path]::GetDirectoryName($configPath)
 $logPath = Join-Path $baseDir 'switch.log'
-$entropy = [Text.Encoding]::UTF8.GetBytes(__ENTROPY_SEED__)
 
 function Write-Log([string]$Message) {
     try {
@@ -178,12 +165,16 @@ function Assert-Admin {
 }
 
 function Unprotect-Secret([string]$CipherText) {
-    $cipherBytes = [Convert]::FromBase64String($CipherText)
-    $plainBytes = [System.Security.Cryptography.ProtectedData, System.Security]::Unprotect(
-        $cipherBytes,
-        $entropy,
-        [System.Security.Cryptography.DataProtectionScope, System.Security]::LocalMachine
-    )
+    if ([string]::IsNullOrWhiteSpace($CipherText)) {
+        return ''
+    }
+
+    $payload = $CipherText
+    if ($CipherText.StartsWith('B64:')) {
+        $payload = $CipherText.Substring(4)
+    }
+
+    $plainBytes = [Convert]::FromBase64String($payload)
     return [Text.Encoding]::UTF8.GetString($plainBytes)
 }
 
@@ -231,7 +222,7 @@ catch {
 }
 '@
 
-    $script = $template.Replace('__CONFIG_PATH__', $configLiteral).Replace('__ENTROPY_SEED__', $entropyLiteral)
+    $script = $template.Replace('__CONFIG_PATH__', $configLiteral)
     $bytes = [Text.Encoding]::Unicode.GetBytes($script)
     return [Convert]::ToBase64String($bytes)
 }
@@ -445,9 +436,8 @@ if ([string]::IsNullOrWhiteSpace($secondaryPasswordPlain)) {
     throw "Password for $($secondaryAccount.Qualified) cannot be blank."
 }
 
-$entropy = [Text.Encoding]::UTF8.GetBytes($entropySeed)
-$primaryPasswordEncrypted = Protect-PlainTextLocalMachine -PlainText $primaryPasswordPlain -Entropy $entropy
-$secondaryPasswordEncrypted = Protect-PlainTextLocalMachine -PlainText $secondaryPasswordPlain -Entropy $entropy
+$primaryPasswordEncrypted = Protect-PlainTextLocalMachine -PlainText $primaryPasswordPlain
+$secondaryPasswordEncrypted = Protect-PlainTextLocalMachine -PlainText $secondaryPasswordPlain
 
 New-Item -Path $installDir -ItemType Directory -Force | Out-Null
 
@@ -465,7 +455,7 @@ $config = [pscustomobject]@{
 
 $config | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $configPath -Encoding UTF8
 
-$encodedCommand = New-EncodedSwitchCommand -ConfigFilePath $configPath -EntropySeedValue $entropySeed
+$encodedCommand = New-EncodedSwitchCommand -ConfigFilePath $configPath
 Write-Utf8NoBomFile -Path $encodedSwitchPath -Content $encodedCommand
 
 Write-ListenerScript -Path $listenerScriptPath
