@@ -12,9 +12,9 @@ $installDir = Join-Path $env:ProgramData 'InstantLoginSwitcher'
 $configPath = Join-Path $installDir 'config.json'
 $encodedSwitchPath = Join-Path $installDir 'switch-command.b64'
 $listenerScriptPath = Join-Path $installDir 'InstantLoginSwitcher.ahk'
-$listenerTaskName = 'InstantLoginSwitcher-Hotkey-Listener'
+$listenerTaskPrefix = 'InstantLoginSwitcher-Hotkey'
+$legacyListenerTaskName = 'InstantLoginSwitcher-Hotkey-Listener'
 $localAdministratorsSid = 'S-1-5-32-544'
-$usersGroupSid = 'S-1-5-32-545'
 
 function Test-Admin {
     $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
@@ -87,7 +87,19 @@ function Resolve-LocalAccount {
         UserName  = $matched.Name
         FullName  = $matched.FullName
         Qualified = "$machine\$($matched.Name)"
+        SidValue  = if ($matched.SID) { $matched.SID.Value } else { $null }
     }
+}
+
+function New-ListenerTaskName {
+    param(
+        [string]$SidValue,
+        [Parameter(Mandatory)][string]$UserName
+    )
+
+    $nameSource = if ([string]::IsNullOrWhiteSpace($SidValue)) { $UserName } else { $SidValue }
+    $cleanSid = ($nameSource -replace '[^A-Za-z0-9\-]', '_')
+    return "$listenerTaskPrefix-$cleanSid"
 }
 
 function Assert-LocalAdministratorAccount {
@@ -367,19 +379,15 @@ function Register-ListenerTask {
     param(
         [Parameter(Mandatory)][string]$TaskName,
         [Parameter(Mandatory)][string]$AutoHotkeyExe,
-        [Parameter(Mandatory)][string]$ListenerScriptPath
+        [Parameter(Mandatory)][string]$ListenerScriptPath,
+        [Parameter(Mandatory)][string]$UserId
     )
 
     $action = New-ScheduledTaskAction -Execute $AutoHotkeyExe -Argument ('"{0}"' -f $ListenerScriptPath)
-    $trigger = New-ScheduledTaskTrigger -AtLogOn
+    $trigger = New-ScheduledTaskTrigger -AtLogOn -User $UserId
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
 
-    try {
-        $principal = New-ScheduledTaskPrincipal -GroupId $usersGroupSid -RunLevel Highest
-    }
-    catch {
-        $principal = New-ScheduledTaskPrincipal -GroupId 'Users' -RunLevel Highest
-    }
+    $principal = New-ScheduledTaskPrincipal -UserId $UserId -LogonType Interactive -RunLevel Highest
 
     Remove-TaskIfExists -TaskName $TaskName
     Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force -ErrorAction Stop | Out-Null
@@ -392,9 +400,9 @@ if (-not (Test-Admin)) {
 if ($Mode -eq 'Uninstall') {
     Stop-ListenerProcesses -ScriptPath $listenerScriptPath
 
-    $taskNames = @($listenerTaskName)
+    $taskNames = @($legacyListenerTaskName)
     $taskNames += (Get-ScheduledTask -ErrorAction SilentlyContinue |
-        Where-Object { $_.TaskName -like 'InstantLoginSwitcher-Hotkey-*' } |
+        Where-Object { $_.TaskName -like "$listenerTaskPrefix-*" } |
         Select-Object -ExpandProperty TaskName)
 
     foreach ($taskName in $taskNames | Select-Object -Unique) {
@@ -469,18 +477,24 @@ Write-Utf8NoBomFile -Path $encodedSwitchPath -Content $encodedCommand
 Write-ListenerScript -Path $listenerScriptPath
 Stop-ListenerProcesses -ScriptPath $listenerScriptPath
 
-$staleTaskNames = Get-ScheduledTask -ErrorAction SilentlyContinue |
-    Where-Object { $_.TaskName -like 'InstantLoginSwitcher-Hotkey-*' } |
-    Select-Object -ExpandProperty TaskName -Unique
+$staleTaskNames = @(Get-ScheduledTask -ErrorAction SilentlyContinue |
+    Where-Object { $_.TaskName -like "$listenerTaskPrefix-*" } |
+    Select-Object -ExpandProperty TaskName -Unique)
+$staleTaskNames += $legacyListenerTaskName
 
 foreach ($taskName in $staleTaskNames) {
     Remove-TaskIfExists -TaskName $taskName
 }
 
-Register-ListenerTask -TaskName $listenerTaskName -AutoHotkeyExe $ahkExe -ListenerScriptPath $listenerScriptPath
+$primaryTaskName = New-ListenerTaskName -SidValue $primaryAccount.SidValue -UserName $primaryAccount.UserName
+$secondaryTaskName = New-ListenerTaskName -SidValue $secondaryAccount.SidValue -UserName $secondaryAccount.UserName
+
+Register-ListenerTask -TaskName $primaryTaskName -AutoHotkeyExe $ahkExe -ListenerScriptPath $listenerScriptPath -UserId $primaryAccount.Qualified
+Register-ListenerTask -TaskName $secondaryTaskName -AutoHotkeyExe $ahkExe -ListenerScriptPath $listenerScriptPath -UserId $secondaryAccount.Qualified
 
 try {
-    Start-ScheduledTask -TaskName $listenerTaskName -ErrorAction SilentlyContinue
+    Start-ScheduledTask -TaskName $primaryTaskName -ErrorAction SilentlyContinue
+    Start-ScheduledTask -TaskName $secondaryTaskName -ErrorAction SilentlyContinue
 }
 catch {
 }
@@ -490,6 +504,7 @@ $secondaryPasswordPlain = $null
 
 Write-Host "Resolved primary account: $($primaryAccount.Qualified)"
 Write-Host "Resolved secondary account: $($secondaryAccount.Qualified)"
-Write-Host "Listener task: $listenerTaskName"
+Write-Host "Listener task (primary): $primaryTaskName"
+Write-Host "Listener task (secondary): $secondaryTaskName"
 Write-Host 'InstantLoginSwitcher installed.'
 Write-Host 'Hotkey: Numpad4 + Numpad5 + Numpad6'

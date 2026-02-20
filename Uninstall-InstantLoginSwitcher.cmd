@@ -5,7 +5,7 @@ cd /d "%~dp0"
 set "LOG_FILE=%TEMP%\InstantLoginSwitcher-uninstall.log"
 set "CORE_SCRIPT=%CD%\scripts\Setup-InstantLoginSwitcher.ps1"
 set "BOOTSTRAP_SCRIPT=%CD%\scripts\Invoke-SetupBootstrap.ps1"
-set "ILS_BUILD=2026.02.20.5"
+set "ILS_BUILD=2026.02.20.6"
 set "POWERSHELL_EXE=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 set "ILS_MODE=Uninstall"
 set "EXIT_CODE=1"
@@ -23,6 +23,7 @@ if errorlevel 1 goto NEED_ADMIN
 
 if not exist "%CORE_SCRIPT%" goto MISSING_CORE
 if not exist "%BOOTSTRAP_SCRIPT%" goto MISSING_BOOTSTRAP
+if not exist "%POWERSHELL_EXE%" goto MISSING_POWERSHELL
 
 echo Build: %ILS_BUILD% >> "%LOG_FILE%"
 echo Core script: %CORE_SCRIPT% >> "%LOG_FILE%"
@@ -57,6 +58,12 @@ goto END
 echo Could not find bootstrap script:
 echo %BOOTSTRAP_SCRIPT%
 echo ERROR: missing bootstrap script >> "%LOG_FILE%"
+goto END
+
+:MISSING_POWERSHELL
+echo Could not find Windows PowerShell executable:
+echo %POWERSHELL_EXE%
+echo ERROR: missing powershell executable >> "%LOG_FILE%"
 goto END
 
 :UNINSTALL_FAILED
