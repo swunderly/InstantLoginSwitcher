@@ -276,10 +276,12 @@ try {
     if ($currentUser -ieq $config.PrimaryUser) {
         $targetUser = [string]$config.SecondaryUser
         $encryptedPassword = [string]$config.SecondaryPasswordEnc
+        $targetSid = [string]$config.SecondaryUserSid
     }
     elseif ($currentUser -ieq $config.SecondaryUser) {
         $targetUser = [string]$config.PrimaryUser
         $encryptedPassword = [string]$config.PrimaryPasswordEnc
+        $targetSid = [string]$config.PrimaryUserSid
     }
     else {
         throw "Current user '$currentUser' is not part of configured switch pair."
@@ -290,7 +292,7 @@ try {
         throw 'Target password could not be decrypted.'
     }
 
-    $domain = if ($config.MachineName) { [string]$config.MachineName } else { $env:COMPUTERNAME }
+    $domain = '.'
     $winlogonPath = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
 
     Set-ItemProperty -Path $winlogonPath -Name 'AutoAdminLogon' -Type String -Value '1'
@@ -301,11 +303,17 @@ try {
     Set-ItemProperty -Path $winlogonPath -Name 'AltDefaultUserName' -Type String -Value $targetUser
     Set-ItemProperty -Path $winlogonPath -Name 'AltDefaultDomainName' -Type String -Value $domain
     Set-ItemProperty -Path $winlogonPath -Name 'LastUsedUsername' -Type String -Value ($domain + '\' + $targetUser)
+    if (-not [string]::IsNullOrWhiteSpace($targetSid)) {
+        Set-ItemProperty -Path $winlogonPath -Name 'AutoLogonSID' -Type String -Value $targetSid
+    }
+    else {
+        Remove-ItemProperty -Path $winlogonPath -Name 'AutoLogonSID' -ErrorAction SilentlyContinue
+    }
     Remove-ItemProperty -Path $winlogonPath -Name 'AutoLogonCount' -ErrorAction SilentlyContinue
 
     $snapshot = Get-ItemProperty -Path $winlogonPath -ErrorAction SilentlyContinue
     if ($snapshot) {
-        Write-Log ("Winlogon snapshot: AutoAdminLogon={0}; ForceAutoLogon={1}; DefaultUserName={2}; DefaultDomainName={3}" -f $snapshot.AutoAdminLogon, $snapshot.ForceAutoLogon, $snapshot.DefaultUserName, $snapshot.DefaultDomainName)
+        Write-Log ("Winlogon snapshot: AutoAdminLogon={0}; ForceAutoLogon={1}; DefaultUserName={2}; DefaultDomainName={3}; AutoLogonSID={4}" -f $snapshot.AutoAdminLogon, $snapshot.ForceAutoLogon, $snapshot.DefaultUserName, $snapshot.DefaultDomainName, $snapshot.AutoLogonSID)
     }
 
     $policyPath = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
@@ -473,6 +481,7 @@ function Disable-AutoAdminLogon {
     Remove-ItemProperty -Path $path -Name 'DefaultDomainName' -ErrorAction SilentlyContinue
     Remove-ItemProperty -Path $path -Name 'AltDefaultUserName' -ErrorAction SilentlyContinue
     Remove-ItemProperty -Path $path -Name 'AltDefaultDomainName' -ErrorAction SilentlyContinue
+    Remove-ItemProperty -Path $path -Name 'AutoLogonSID' -ErrorAction SilentlyContinue
     Remove-ItemProperty -Path $path -Name 'AutoLogonCount' -ErrorAction SilentlyContinue
 }
 
@@ -574,6 +583,8 @@ $config = [pscustomobject]@{
     SecondaryUser        = $secondaryAccount.UserName
     PrimaryQualifiedUser = $primaryAccount.Qualified
     SecondaryQualifiedUser = $secondaryAccount.Qualified
+    PrimaryUserSid       = $primaryAccount.SidValue
+    SecondaryUserSid     = $secondaryAccount.SidValue
     PrimaryPasswordEnc   = $primaryPasswordEncrypted
     SecondaryPasswordEnc = $secondaryPasswordEncrypted
     SwitchMode           = $defaultSwitchMode
