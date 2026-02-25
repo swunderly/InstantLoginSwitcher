@@ -93,6 +93,30 @@ function Test-Admin {
     return $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
+function Test-AutoHotkeyV2Executable {
+    param([Parameter(Mandatory)][string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return $false
+    }
+
+    $probeScriptPath = Join-Path $env:TEMP ("ils-ahk-probe-{0}.ahk" -f ([System.Guid]::NewGuid().ToString('N')))
+    $probeContent = "#Requires AutoHotkey v2.0`r`nExitApp`r`n"
+    $encoding = New-Object System.Text.UTF8Encoding($false)
+
+    try {
+        [System.IO.File]::WriteAllText($probeScriptPath, $probeContent, $encoding)
+        $probeProcess = Start-Process -FilePath $Path -ArgumentList ('"{0}"' -f $probeScriptPath) -WindowStyle Hidden -Wait -PassThru -ErrorAction Stop
+        return ($probeProcess.ExitCode -eq 0)
+    }
+    catch {
+        return $false
+    }
+    finally {
+        Remove-Item -LiteralPath $probeScriptPath -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Get-AutoHotkeyExecutable {
     $roots = @()
     if (-not [string]::IsNullOrWhiteSpace($env:ProgramFiles)) {
@@ -113,7 +137,7 @@ function Get-AutoHotkeyExecutable {
             'AutoHotkey\AutoHotkey.exe'
         )) {
             $candidate = Join-Path $root $relative
-            if (Test-Path -LiteralPath $candidate) {
+            if ((Test-Path -LiteralPath $candidate) -and (Test-AutoHotkeyV2Executable -Path $candidate)) {
                 return $candidate
             }
         }
@@ -121,7 +145,7 @@ function Get-AutoHotkeyExecutable {
 
     foreach ($commandName in @('AutoHotkey64.exe', 'AutoHotkey.exe')) {
         $command = Get-Command -Name $commandName -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($command -and (Test-Path -LiteralPath $command.Source)) {
+        if ($command -and (Test-Path -LiteralPath $command.Source) -and (Test-AutoHotkeyV2Executable -Path $command.Source)) {
             return $command.Source
         }
     }
@@ -959,6 +983,29 @@ function Stop-ListenerProcesses {
     }
 }
 
+function Test-ListenerProcessRunning {
+    param([Parameter(Mandatory)][string]$ScriptPath)
+
+    $scriptName = [System.IO.Path]::GetFileName($ScriptPath)
+    $scriptPattern = [System.Text.RegularExpressions.Regex]::Escape($scriptName)
+    $fullPathPattern = $null
+
+    if (Test-Path -LiteralPath $ScriptPath) {
+        $fullPathPattern = [System.Text.RegularExpressions.Regex]::Escape([System.IO.Path]::GetFullPath($ScriptPath))
+    }
+
+    $process = Get-CimInstance Win32_Process -Filter "Name LIKE 'AutoHotkey%.exe'" -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.CommandLine -and (
+                ($fullPathPattern -and $_.CommandLine -match $fullPathPattern) -or
+                $_.CommandLine -match $scriptPattern
+            )
+        } |
+        Select-Object -First 1
+
+    return ($null -ne $process)
+}
+
 function Remove-TaskIfExists {
     param([Parameter(Mandatory)][string]$TaskName)
 
@@ -1280,6 +1327,14 @@ if ($currentUserConfigured) {
     catch {
         Write-Host "Could not start listener process directly for current user: $($_.Exception.Message)" -ForegroundColor Yellow
     }
+
+    Start-Sleep -Milliseconds 900
+    if (-not (Test-ListenerProcessRunning -ScriptPath $listenerScriptPath)) {
+        throw "Listener process failed to start for current user '$currentUserName'. Confirm AutoHotkey v2 is installed and not blocked by security policy."
+    }
+}
+else {
+    Write-Host "Current user '$currentUserName' is not configured. Listener will start when configured users log in."
 }
 
 Write-Host ''
