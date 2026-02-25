@@ -1195,6 +1195,10 @@ foreach ($userName in ($selectedAccounts.Keys | Sort-Object)) {
     $passwordPlain = $null
 }
 
+$userRecordsArray = $userRecords.ToArray()
+$profilesArray = $profiles.ToArray()
+$hotkeysArray = $hotkeys.ToArray()
+
 New-Item -Path $installDir -ItemType Directory -Force | Out-Null
 New-Item -Path $commandsDir -ItemType Directory -Force | Out-Null
 
@@ -1205,21 +1209,21 @@ $config = [pscustomobject]@{
     Version      = 3
     SwitchMode   = $defaultSwitchMode
     MachineName  = $env:COMPUTERNAME
-    Users        = @($userRecords)
-    Profiles     = @($profiles)
-    Hotkeys      = @($hotkeys)
+    Users        = $userRecordsArray
+    Profiles     = $profilesArray
+    Hotkeys      = $hotkeysArray
     UpdatedAtUtc = [System.DateTime]::UtcNow.ToString('o')
 }
 
 $config | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $configPath -Encoding UTF8
 
-foreach ($hotkey in $hotkeys) {
+foreach ($hotkey in $hotkeysArray) {
     $encodedCommand = New-EncodedSwitchCommand -ConfigFilePath $configPath -HotkeyId $hotkey.HotkeyId
     $commandPath = Join-Path $commandsDir ("{0}.b64" -f $hotkey.HotkeyId)
     Write-Utf8NoBomFile -Path $commandPath -Content $encodedCommand
 }
 
-Write-ListenerScript -Path $listenerScriptPath -Hotkeys @($hotkeys)
+Write-ListenerScript -Path $listenerScriptPath -Hotkeys $hotkeysArray
 Stop-ListenerProcesses -ScriptPath $listenerScriptPath
 
 $staleTaskNames = @(Get-ScheduledTask -ErrorAction SilentlyContinue |
@@ -1232,7 +1236,7 @@ foreach ($taskName in $staleTaskNames | Select-Object -Unique) {
 }
 
 $registeredTaskNames = New-Object System.Collections.Generic.List[string]
-foreach ($userRecord in $userRecords) {
+foreach ($userRecord in $userRecordsArray) {
     $taskName = New-ListenerTaskName -SidValue ([string]$userRecord.SidValue) -UserName ([string]$userRecord.UserName)
     Register-ListenerTask -TaskName $taskName -AutoHotkeyExe $ahkExe -ListenerScriptPath $listenerScriptPath -UserId ([string]$userRecord.Qualified)
     [void]$registeredTaskNames.Add($taskName)
@@ -1248,7 +1252,7 @@ foreach ($taskName in $registeredTaskNames) {
 
 Write-Host ''
 Write-Host 'Configured profiles:'
-foreach ($profile in $profiles) {
+foreach ($profile in $profilesArray) {
     Write-Host (" - {0}: {1} <-> {2} ({3})" -f $profile.ProfileId, $profile.UserA, $profile.UserB, $profile.Hotkey)
 }
 
