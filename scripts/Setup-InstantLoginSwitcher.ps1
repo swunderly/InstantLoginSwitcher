@@ -835,11 +835,9 @@ function Write-ListenerScript {
     $comboBlock = [string]::Join(",`r`n", $comboEntries)
     $commandBlock = [string]::Join(",`r`n", $commandEntries)
 
-    $content = @"
+$content = @"
 #Requires AutoHotkey v2.0
 #SingleInstance Force
-#Persistent
-#InstallKeybdHook
 
 commandsDir := A_ScriptDir . "\commands"
 logPath := A_ScriptDir . "\listener.log"
