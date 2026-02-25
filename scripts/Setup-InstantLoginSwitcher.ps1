@@ -1087,8 +1087,8 @@ Write-Host 'If the same hotkey has multiple valid targets for the current user, 
 Write-Host ''
 
 $profileCount = Read-ProfileCount
-$profiles = New-Object System.Collections.Generic.List[object]
-$hotkeys = New-Object System.Collections.Generic.List[object]
+$profiles = @()
+$hotkeys = @()
 $hotkeyIdsByCanonical = @{}
 $selectedAccounts = @{}
 $profileSignature = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
@@ -1133,22 +1133,22 @@ for ($index = 1; $index -le $profileCount; $index++) {
         $nextHotkeyId += 1
         $hotkeyIdsByCanonical[$hotkey.Canonical] = $hotkeyId
 
-        [void]$hotkeys.Add([pscustomobject]@{
+        $hotkeys += [pscustomobject]@{
             HotkeyId = $hotkeyId
             Hotkey   = $hotkey.Canonical
             Keys     = @($hotkey.Keys)
-        })
+        }
     }
 
     $profileId = ('P{0}' -f $index)
-    [void]$profiles.Add([pscustomobject]@{
+    $profiles += [pscustomobject]@{
         ProfileId   = $profileId
         UserA       = $userA.UserName
         UserB       = $userB.UserName
         Hotkey      = $hotkey.Canonical
         HotkeyId    = $hotkeyId
         DisplayName = ('{0} <-> {1}' -f $userA.UserName, $userB.UserName)
-    })
+    }
 
     $selectedAccounts[$userA.UserName] = $userA
     $selectedAccounts[$userB.UserName] = $userB
@@ -1164,7 +1164,7 @@ if ($profiles.Count -eq 0) {
     throw 'No valid switch profiles were configured.'
 }
 
-$userRecords = New-Object System.Collections.Generic.List[object]
+$userRecords = @()
 foreach ($userName in ($selectedAccounts.Keys | Sort-Object)) {
     $account = $selectedAccounts[$userName]
 
@@ -1183,21 +1183,21 @@ foreach ($userName in ($selectedAccounts.Keys | Sort-Object)) {
     $passwordEncrypted = Protect-PlainTextLocalMachine -PlainText $passwordPlain
     $picturePath = Get-UserPicturePath -SidValue $account.SidValue -UserName $account.UserName
 
-    [void]$userRecords.Add([pscustomobject]@{
+    $userRecords += [pscustomobject]@{
         UserName    = $account.UserName
         FullName    = $account.FullName
         Qualified   = $account.Qualified
         SidValue    = $account.SidValue
         PasswordEnc = $passwordEncrypted
         PicturePath = $picturePath
-    })
+    }
 
     $passwordPlain = $null
 }
 
-$userRecordsArray = $userRecords.ToArray()
-$profilesArray = $profiles.ToArray()
-$hotkeysArray = $hotkeys.ToArray()
+$userRecordsArray = @($userRecords)
+$profilesArray = @($profiles)
+$hotkeysArray = @($hotkeys)
 
 New-Item -Path $installDir -ItemType Directory -Force | Out-Null
 New-Item -Path $commandsDir -ItemType Directory -Force | Out-Null
@@ -1235,11 +1235,11 @@ foreach ($taskName in $staleTaskNames | Select-Object -Unique) {
     Remove-TaskIfExists -TaskName $taskName
 }
 
-$registeredTaskNames = New-Object System.Collections.Generic.List[string]
+$registeredTaskNames = @()
 foreach ($userRecord in $userRecordsArray) {
     $taskName = New-ListenerTaskName -SidValue ([string]$userRecord.SidValue) -UserName ([string]$userRecord.UserName)
     Register-ListenerTask -TaskName $taskName -AutoHotkeyExe $ahkExe -ListenerScriptPath $listenerScriptPath -UserId ([string]$userRecord.Qualified)
-    [void]$registeredTaskNames.Add($taskName)
+    $registeredTaskNames += $taskName
 }
 
 foreach ($taskName in $registeredTaskNames) {
