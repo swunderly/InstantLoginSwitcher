@@ -386,13 +386,13 @@ CheckCombo() {
     }
 }
 
-Numpad4::CheckCombo()
-Numpad5::CheckCombo()
-Numpad6::CheckCombo()
+~Numpad4::CheckCombo()
+~Numpad5::CheckCombo()
+~Numpad6::CheckCombo()
 
-Numpad4 Up::ResetTrigger
-Numpad5 Up::ResetTrigger
-Numpad6 Up::ResetTrigger
+~Numpad4 Up::ResetTrigger
+~Numpad5 Up::ResetTrigger
+~Numpad6 Up::ResetTrigger
 
 ResetTrigger(*) {
     global triggered
