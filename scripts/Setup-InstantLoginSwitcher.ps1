@@ -877,7 +877,7 @@ CheckCombos(*) {
 
 IsComboPressed(keys) {
     for keyName in keys {
-        if !GetKeyState(keyName, "P") {
+        if !IsKeyPressed(keyName) {
             return false
         }
     }
@@ -887,9 +887,47 @@ IsComboPressed(keys) {
 
 IsAnyKeyDown(keys) {
     for keyName in keys {
-        if GetKeyState(keyName, "P") {
+        if IsKeyPressed(keyName) {
             return true
         }
+    }
+
+    return false
+}
+
+IsKeyPressed(keyName) {
+    if GetKeyState(keyName, "P") {
+        return true
+    }
+
+    altKey := ""
+    switch keyName {
+        case "Numpad0":
+            altKey := "NumpadIns"
+        case "Numpad1":
+            altKey := "NumpadEnd"
+        case "Numpad2":
+            altKey := "NumpadDown"
+        case "Numpad3":
+            altKey := "NumpadPgDn"
+        case "Numpad4":
+            altKey := "NumpadLeft"
+        case "Numpad5":
+            altKey := "NumpadClear"
+        case "Numpad6":
+            altKey := "NumpadRight"
+        case "Numpad7":
+            altKey := "NumpadHome"
+        case "Numpad8":
+            altKey := "NumpadUp"
+        case "Numpad9":
+            altKey := "NumpadPgUp"
+        case "NumpadDot":
+            altKey := "NumpadDel"
+    }
+
+    if (altKey != "" && GetKeyState(altKey, "P")) {
+        return true
     }
 
     return false
@@ -944,7 +982,7 @@ RunSwitch(hotkeyId) {
     WriteLog("Triggering switch for " . hotkeyId)
 
     psExe := A_WinDir . "\System32\WindowsPowerShell\v1.0\powershell.exe"
-    command := '"' . psExe . '" -NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand ' . encoded
+    command := '"' . psExe . '" -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand ' . encoded
 
     try {
         Run(command, , "Hide")

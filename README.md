@@ -75,6 +75,7 @@ Uninstall removes:
   - Confirm tasks exist:
     - `schtasks /Query /FO LIST | findstr /I "InstantLoginSwitcher-Hotkey"`
   - Confirm AutoHotkey v2 is installed (v1 is not supported).
+  - If using numpad keys, test with NumLock both on and off.
   - Check listener log:
     - `C:\ProgramData\InstantLoginSwitcher\listener.log`
   - Check switch log:
