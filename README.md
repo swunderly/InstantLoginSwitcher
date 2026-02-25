@@ -74,6 +74,8 @@ Uninstall removes:
 - Hotkey does nothing:
   - Confirm tasks exist:
     - `schtasks /Query /FO LIST | findstr /I "InstantLoginSwitcher-Hotkey"`
+  - Check listener log:
+    - `C:\ProgramData\InstantLoginSwitcher\listener.log`
   - Check switch log:
     - `C:\ProgramData\InstantLoginSwitcher\switch.log`
 - Password validation fails:

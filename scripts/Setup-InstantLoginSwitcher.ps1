@@ -814,8 +814,11 @@ function Write-ListenerScript {
     $content = @"
 #Requires AutoHotkey v2.0
 #SingleInstance Force
+#Persistent
+#InstallKeybdHook
 
 commandsDir := A_ScriptDir . "\commands"
+logPath := A_ScriptDir . "\listener.log"
 switchInProgress := false
 
 combos := Array(
@@ -826,6 +829,7 @@ commandMap := Map(
 $commandBlock
 )
 
+WriteLog("Listener started. combos=" . combos.Length)
 SetTimer(CheckCombos, 35)
 
 CheckCombos(*) {
@@ -872,6 +876,17 @@ ResetSwitchGuard(*) {
     switchInProgress := false
 }
 
+WriteLog(message) {
+    global logPath
+
+    try {
+        timestamp := FormatTime(, "yyyy-MM-dd HH:mm:ss")
+        FileAppend(timestamp . " " . message . "`r`n", logPath, "UTF-8")
+    }
+    catch {
+    }
+}
+
 RunSwitch(hotkeyId) {
     global commandMap, switchInProgress
 
@@ -880,16 +895,19 @@ RunSwitch(hotkeyId) {
     }
 
     if !commandMap.Has(hotkeyId) {
+        WriteLog("Missing command map entry for " . hotkeyId)
         return
     }
 
     encodedPath := commandMap[hotkeyId]
     if !FileExist(encodedPath) {
+        WriteLog("Command file missing: " . encodedPath)
         return
     }
 
     encoded := Trim(FileRead(encodedPath, "UTF-8"))
     if (encoded = "") {
+        WriteLog("Command file empty: " . encodedPath)
         return
     }
 
@@ -899,6 +917,7 @@ RunSwitch(hotkeyId) {
 
     switchInProgress := true
     SetTimer(ResetSwitchGuard, -3000)
+    WriteLog("Triggering switch for " . hotkeyId)
 
     psExe := A_WinDir . "\System32\WindowsPowerShell\v1.0\powershell.exe"
     command := '"' . psExe . '" -NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand ' . encoded
@@ -907,6 +926,7 @@ RunSwitch(hotkeyId) {
         Run(command, , "Hide")
     }
     catch {
+        WriteLog("Run failed for " . hotkeyId)
         ResetSwitchGuard()
     }
 }
@@ -1247,6 +1267,18 @@ foreach ($taskName in $registeredTaskNames) {
         Start-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
     }
     catch {
+    }
+}
+
+$currentUserName = [System.Environment]::UserName
+$currentUserConfigured = $userRecordsArray | Where-Object { [string]$_.UserName -ieq $currentUserName } | Select-Object -First 1
+if ($currentUserConfigured) {
+    try {
+        Start-Process -FilePath $ahkExe -ArgumentList ('"{0}"' -f $listenerScriptPath) -WindowStyle Hidden | Out-Null
+        Write-Host "Listener startup attempted for current user: $currentUserName"
+    }
+    catch {
+        Write-Host "Could not start listener process directly for current user: $($_.Exception.Message)" -ForegroundColor Yellow
     }
 }
 
