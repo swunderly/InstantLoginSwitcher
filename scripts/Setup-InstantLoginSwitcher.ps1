@@ -940,7 +940,7 @@ WriteLog(message) {
     global logPath
 
     try {
-        timestamp := FormatTime(, "yyyy-MM-dd HH:mm:ss")
+        timestamp := FormatTime(A_Now, "yyyy-MM-dd HH:mm:ss")
         FileAppend(timestamp . " " . message . "`r`n", logPath, "UTF-8")
     }
     catch {
@@ -980,7 +980,7 @@ RunSwitch(hotkeyId) {
     WriteLog("Triggering switch for " . hotkeyId)
 
     psExe := A_WinDir . "\System32\WindowsPowerShell\v1.0\powershell.exe"
-    command := '"' . psExe . '" -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand ' . encoded
+    command := '"' . psExe . '" -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -STA -EncodedCommand ' . encoded
 
     try {
         Run(command, , "Hide")
@@ -1326,6 +1326,18 @@ foreach ($hotkey in $hotkeysArray) {
     Write-Utf8NoBomFile -Path $commandPath -Content $encodedCommand
 }
 
+foreach ($hotkey in $hotkeysArray) {
+    $commandPath = Join-Path $commandsDir ("{0}.b64" -f $hotkey.HotkeyId)
+    if (-not (Test-Path -LiteralPath $commandPath)) {
+        throw "Missing command payload file after generation: $commandPath"
+    }
+
+    $length = (Get-Item -LiteralPath $commandPath -ErrorAction Stop).Length
+    if ($length -lt 32) {
+        throw "Generated command payload file is unexpectedly small: $commandPath"
+    }
+}
+
 Write-ListenerScript -Path $listenerScriptPath -Hotkeys $hotkeysArray
 Stop-ListenerProcesses -ScriptPath $listenerScriptPath
 
@@ -1381,4 +1393,6 @@ foreach ($profile in $profilesArray) {
 
 Write-Host ''
 Write-Host 'InstantLoginSwitcher installed.'
+Write-Host ("Listener log: {0}" -f (Join-Path $installDir 'listener.log'))
+Write-Host ("Switch log:   {0}" -f (Join-Path $installDir 'switch.log'))
 Write-Host 'Sign out and sign back in once, then test the configured hotkeys.'
