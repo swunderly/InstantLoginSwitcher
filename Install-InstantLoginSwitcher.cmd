@@ -5,10 +5,11 @@ cd /d "%~dp0"
 set "LOG_FILE=%TEMP%\InstantLoginSwitcher-install.log"
 set "CORE_SCRIPT=%CD%\scripts\Setup-InstantLoginSwitcher.ps1"
 set "BOOTSTRAP_SCRIPT=%CD%\scripts\Invoke-SetupBootstrap.ps1"
-set "ILS_BUILD=2026.02.20.11"
+set "ILS_BUILD=2026.02.25.02"
 set "POWERSHELL_EXE=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
-set "ILS_PRIMARY_USER=Samuel Wunderly"
-set "ILS_SECONDARY_USER=Lizzy Wunderly"
+set "ILS_PRIMARY_USER="
+set "ILS_SECONDARY_USER="
+set "ILS_DEFAULT_HOTKEY=Numpad4+Numpad5+Numpad6"
 set "ILS_MODE=Install"
 set "EXIT_CODE=1"
 
@@ -27,15 +28,13 @@ if not exist "%CORE_SCRIPT%" goto MISSING_CORE
 if not exist "%BOOTSTRAP_SCRIPT%" goto MISSING_BOOTSTRAP
 if not exist "%POWERSHELL_EXE%" goto MISSING_POWERSHELL
 
-echo Leave blank to keep defaults shown in [brackets].
+echo The installer will prompt for profiles, users, hotkeys, and passwords.
+echo Leave prompts blank inside the installer to accept defaults.
 echo.
-set /p "PRIMARY_INPUT=Primary user [%ILS_PRIMARY_USER%]: "
-if not "%PRIMARY_INPUT%"=="" set "ILS_PRIMARY_USER=%PRIMARY_INPUT%"
-set /p "SECONDARY_INPUT=Secondary user [%ILS_SECONDARY_USER%]: "
-if not "%SECONDARY_INPUT%"=="" set "ILS_SECONDARY_USER=%SECONDARY_INPUT%"
 
 echo Primary user: %ILS_PRIMARY_USER% >> "%LOG_FILE%"
 echo Secondary user: %ILS_SECONDARY_USER% >> "%LOG_FILE%"
+echo Default hotkey: %ILS_DEFAULT_HOTKEY% >> "%LOG_FILE%"
 echo Build: %ILS_BUILD% >> "%LOG_FILE%"
 echo Core script: %CORE_SCRIPT% >> "%LOG_FILE%"
 echo Bootstrap script: %BOOTSTRAP_SCRIPT% >> "%LOG_FILE%"
@@ -50,7 +49,7 @@ echo.
 if not "%EXIT_CODE%"=="0" goto INSTALL_FAILED
 
 echo Install completed.
-echo Sign out and back in once, then press Numpad4 + Numpad5 + Numpad6 together.
+echo Sign out and back in once, then test the hotkeys you configured.
 set "EXIT_CODE=0"
 goto END
 

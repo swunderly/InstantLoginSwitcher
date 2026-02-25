@@ -1,8 +1,9 @@
 param(
     [ValidateSet('Install', 'Uninstall')]
     [string]$Mode = 'Install',
-    [string]$PrimaryUser,
-    [string]$SecondaryUser
+    [string]$DefaultPrimaryUser,
+    [string]$DefaultSecondaryUser,
+    [string]$DefaultHotkey = 'Numpad4+Numpad5+Numpad6'
 )
 
 Set-StrictMode -Version Latest
@@ -10,12 +11,81 @@ $ErrorActionPreference = 'Stop'
 
 $installDir = Join-Path $env:ProgramData 'InstantLoginSwitcher'
 $configPath = Join-Path $installDir 'config.json'
-$encodedSwitchPath = Join-Path $installDir 'switch-command.b64'
+$commandsDir = Join-Path $installDir 'commands'
 $listenerScriptPath = Join-Path $installDir 'InstantLoginSwitcher.ahk'
 $listenerTaskPrefix = 'InstantLoginSwitcher-Hotkey'
 $legacyListenerTaskName = 'InstantLoginSwitcher-Hotkey-Listener'
 $localAdministratorsSid = 'S-1-5-32-544'
 $defaultSwitchMode = 'Logoff'
+
+if ([string]::IsNullOrWhiteSpace($DefaultHotkey)) {
+    $DefaultHotkey = 'Numpad4+Numpad5+Numpad6'
+}
+
+$hotkeyAliases = @{
+    'CTRL'        = 'Ctrl'
+    'CONTROL'     = 'Ctrl'
+    'LCONTROL'    = 'LCtrl'
+    'RCONTROL'    = 'RCtrl'
+    'LCTRL'       = 'LCtrl'
+    'RCTRL'       = 'RCtrl'
+    'ALT'         = 'Alt'
+    'LALT'        = 'LAlt'
+    'RALT'        = 'RAlt'
+    'SHIFT'       = 'Shift'
+    'LSHIFT'      = 'LShift'
+    'RSHIFT'      = 'RShift'
+    'WIN'         = 'LWin'
+    'WINDOWS'     = 'LWin'
+    'LWIN'        = 'LWin'
+    'RWIN'        = 'RWin'
+    'ENTER'       = 'Enter'
+    'RETURN'      = 'Enter'
+    'ESC'         = 'Escape'
+    'ESCAPE'      = 'Escape'
+    'SPACE'       = 'Space'
+    'SPACEBAR'    = 'Space'
+    'TAB'         = 'Tab'
+    'BACKSPACE'   = 'Backspace'
+    'BS'          = 'Backspace'
+    'DELETE'      = 'Delete'
+    'DEL'         = 'Delete'
+    'INSERT'      = 'Insert'
+    'INS'         = 'Insert'
+    'HOME'        = 'Home'
+    'END'         = 'End'
+    'PGUP'        = 'PgUp'
+    'PAGEUP'      = 'PgUp'
+    'PGDN'        = 'PgDn'
+    'PAGEDOWN'    = 'PgDn'
+    'UP'          = 'Up'
+    'DOWN'        = 'Down'
+    'LEFT'        = 'Left'
+    'RIGHT'       = 'Right'
+    'NUMLOCK'     = 'NumLock'
+    'SCROLLLOCK'  = 'ScrollLock'
+    'CAPSLOCK'    = 'CapsLock'
+    'PRINTSCREEN' = 'PrintScreen'
+    'PRTSC'       = 'PrintScreen'
+    'PAUSE'       = 'Pause'
+    'BREAK'       = 'Pause'
+    'NUMPADADD'   = 'NumpadAdd'
+    'NUMPADSUB'   = 'NumpadSub'
+    'NUMPADMULT'  = 'NumpadMult'
+    'NUMPADDIV'   = 'NumpadDiv'
+    'NUMPADDOT'   = 'NumpadDot'
+    'NUMPADDEL'   = 'NumpadDot'
+}
+
+$modifierKeys = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+foreach ($modifier in @(
+    'Ctrl', 'LCtrl', 'RCtrl',
+    'Alt', 'LAlt', 'RAlt',
+    'Shift', 'LShift', 'RShift',
+    'LWin', 'RWin'
+)) {
+    [void]$modifierKeys.Add($modifier)
+}
 
 function Test-Admin {
     $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
@@ -59,57 +129,12 @@ function Get-AutoHotkeyExecutable {
     return $null
 }
 
-function Resolve-LocalAccount {
-    param([Parameter(Mandatory)][string]$InputName)
-
-    $machine = $env:COMPUTERNAME
-    $candidate = $InputName.Trim()
-
-    if ($candidate.Contains('\')) {
-        $candidate = $candidate.Split('\', 2)[1]
-    }
-
-    $localUsers = Get-LocalUser
-    $matched = $localUsers | Where-Object { $_.Name -eq $candidate } | Select-Object -First 1
-    if (-not $matched) {
-        $matched = $localUsers | Where-Object { $_.FullName -eq $candidate } | Select-Object -First 1
-    }
-
-    if (-not $matched) {
-        throw "Could not find a local account matching '$InputName'. Use 'Get-LocalUser | Select Name, FullName' and pass Name."
-    }
-
-    if (-not $matched.Enabled) {
-        throw "Local account '$($matched.Name)' is disabled. Enable it before configuring InstantLoginSwitcher."
-    }
-
-    [pscustomobject]@{
-        InputName = $InputName
-        UserName  = $matched.Name
-        FullName  = $matched.FullName
-        Qualified = "$machine\$($matched.Name)"
-        SidValue  = if ($matched.SID) { $matched.SID.Value } else { $null }
-    }
-}
-
-function New-ListenerTaskName {
-    param(
-        [string]$SidValue,
-        [Parameter(Mandatory)][string]$UserName
-    )
-
-    $nameSource = if ([string]::IsNullOrWhiteSpace($SidValue)) { $UserName } else { $SidValue }
-    $cleanSid = ($nameSource -replace '[^A-Za-z0-9\-]', '_')
-    return "$listenerTaskPrefix-$cleanSid"
-}
-
-function Assert-LocalAdministratorAccount {
-    param([Parameter(Mandatory)][string]$UserName)
-
+function Get-LocalAdministratorUserNames {
     try {
         $adminsGroup = Get-LocalGroup -ErrorAction Stop |
             Where-Object { $_.SID -and $_.SID.Value -eq $localAdministratorsSid } |
             Select-Object -First 1
+
         if (-not $adminsGroup) {
             throw "Could not resolve local Administrators group from SID $localAdministratorsSid."
         }
@@ -120,13 +145,67 @@ function Assert-LocalAdministratorAccount {
         throw "Could not read local Administrators group membership: $($_.Exception.Message)"
     }
 
-    $isAdmin = $admins | Where-Object {
-        $_.Name -ieq "$env:COMPUTERNAME\$UserName" -or
-        (($_.Name -split '\\')[-1] -ieq $UserName)
-    } | Select-Object -First 1
+    $names = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($member in $admins) {
+        $name = [string]$member.Name
+        if ([string]::IsNullOrWhiteSpace($name)) {
+            continue
+        }
 
-    if (-not $isAdmin) {
-        throw "Account '$env:COMPUTERNAME\$UserName' is not in local Administrators. Both switch accounts must be administrators."
+        $shortName = ($name -split '\\')[-1]
+        if (-not [string]::IsNullOrWhiteSpace($shortName)) {
+            [void]$names.Add($shortName)
+        }
+    }
+
+    return $names
+}
+
+function Resolve-LocalAccount {
+    param(
+        [Parameter(Mandatory)][string]$InputName,
+        [Parameter(Mandatory)][System.Collections.IEnumerable]$LocalUsers
+    )
+
+    $machine = $env:COMPUTERNAME
+    $candidate = $InputName.Trim()
+
+    if ($candidate.Contains('\\')) {
+        $candidate = $candidate.Split('\\', 2)[1]
+    }
+
+    $matched = $LocalUsers | Where-Object { $_.Name -ieq $candidate } | Select-Object -First 1
+    if (-not $matched) {
+        $matched = $LocalUsers | Where-Object {
+            -not [string]::IsNullOrWhiteSpace($_.FullName) -and $_.FullName -ieq $candidate
+        } | Select-Object -First 1
+    }
+
+    if (-not $matched) {
+        throw "Could not find a local account matching '$InputName'. Use one of the listed local administrator account names."
+    }
+
+    if (-not $matched.Enabled) {
+        throw "Local account '$($matched.Name)' is disabled. Enable it before configuring InstantLoginSwitcher."
+    }
+
+    [pscustomobject]@{
+        InputName = $InputName
+        UserName  = [string]$matched.Name
+        FullName  = [string]$matched.FullName
+        Qualified = "$machine\$($matched.Name)"
+        SidValue  = if ($matched.SID) { [string]$matched.SID.Value } else { $null }
+    }
+}
+
+function Assert-LocalAdministratorAccount {
+    param(
+        [Parameter(Mandatory)][string]$UserName,
+        [Parameter(Mandatory)][System.Collections.Generic.HashSet[string]]$AdminUserNames
+    )
+
+    if (-not $AdminUserNames.Contains($UserName)) {
+        throw "Account '$env:COMPUTERNAME\$UserName' is not in local Administrators. All configured switch users must be administrators."
     }
 }
 
@@ -157,7 +236,7 @@ function Test-LocalCredential {
         }
     }
 
-    $parts = $QualifiedUser.Split('\', 2)
+    $parts = $QualifiedUser.Split('\\', 2)
     if ($parts.Count -ne 2) {
         throw "Invalid qualified user value '$QualifiedUser'. Expected COMPUTERNAME\\UserName."
     }
@@ -211,7 +290,6 @@ namespace InstantLoginSwitcher {
 function Protect-PlainTextLocalMachine {
     param([Parameter(Mandatory)][string]$PlainText)
 
-    # Keep storage format portable across Windows PowerShell builds by avoiding DPAPI type dependencies.
     $plainBytes = [System.Text.Encoding]::UTF8.GetBytes($PlainText)
     return 'B64:' + [System.Convert]::ToBase64String($plainBytes)
 }
@@ -221,14 +299,233 @@ function ConvertTo-SingleQuotedLiteral {
     return "'" + ($Value -replace "'", "''") + "'"
 }
 
+function ConvertTo-AhkStringLiteral {
+    param([Parameter(Mandatory)][string]$Value)
+    return '"' + ($Value -replace '"', '""') + '"'
+}
+
+function Normalize-HotkeyToken {
+    param([Parameter(Mandatory)][string]$Token)
+
+    $trimmed = $Token.Trim()
+    if ([string]::IsNullOrWhiteSpace($trimmed)) {
+        throw 'Hotkey tokens cannot be blank.'
+    }
+
+    $upper = $trimmed.ToUpperInvariant()
+
+    if ($hotkeyAliases.ContainsKey($upper)) {
+        return $hotkeyAliases[$upper]
+    }
+
+    if ($upper -match '^[A-Z]$') {
+        return $upper
+    }
+
+    if ($upper -match '^[0-9]$') {
+        return $upper
+    }
+
+    if ($upper -match '^F([1-9]|1[0-9]|2[0-4])$') {
+        return $upper
+    }
+
+    if ($upper -match '^NUMPAD([0-9])$') {
+        return "Numpad$($Matches[1])"
+    }
+
+    throw "Unsupported hotkey token '$Token'. Use letters, digits, F-keys, numpad keys, arrows, and standard modifiers."
+}
+
+function ConvertFrom-HotkeyText {
+    param([Parameter(Mandatory)][string]$InputText)
+
+    if ([string]::IsNullOrWhiteSpace($InputText)) {
+        throw 'Hotkey cannot be blank.'
+    }
+
+    $parts = @($InputText.Split('+') | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
+
+    if ($parts.Count -lt 2) {
+        throw 'Hotkey must include at least two keys separated by + (example: Ctrl+Alt+S).'
+    }
+
+    if ($parts.Count -gt 4) {
+        throw 'Hotkey can include at most four keys.'
+    }
+
+    $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+    $keys = New-Object System.Collections.Generic.List[string]
+
+    foreach ($part in $parts) {
+        $normalized = Normalize-HotkeyToken -Token $part
+        if (-not $seen.Add($normalized)) {
+            throw "Hotkey contains duplicate key '$normalized'."
+        }
+
+        [void]$keys.Add($normalized)
+    }
+
+    $hasNonModifier = $false
+    foreach ($key in $keys) {
+        if (-not $modifierKeys.Contains($key)) {
+            $hasNonModifier = $true
+            break
+        }
+    }
+
+    if (-not $hasNonModifier) {
+        throw 'Hotkey must include at least one non-modifier key (for example: Ctrl+Alt+S).'
+    }
+
+    return [pscustomobject]@{
+        Canonical = ($keys -join '+')
+        Keys      = @($keys)
+    }
+}
+
+function Read-ProfileCount {
+    while ($true) {
+        $inputValue = Read-Host 'How many switch profiles do you want to configure? [1]'
+        if ([string]::IsNullOrWhiteSpace($inputValue)) {
+            return 1
+        }
+
+        $parsed = 0
+        if (-not [int]::TryParse($inputValue, [ref]$parsed)) {
+            Write-Host 'Enter a whole number (for example: 1, 2, 3).' -ForegroundColor Yellow
+            continue
+        }
+
+        if ($parsed -lt 1 -or $parsed -gt 20) {
+            Write-Host 'Enter a value from 1 to 20.' -ForegroundColor Yellow
+            continue
+        }
+
+        return $parsed
+    }
+}
+
+function Read-LocalAccountFromPrompt {
+    param(
+        [Parameter(Mandatory)][string]$PromptText,
+        [string]$DefaultValue,
+        [Parameter(Mandatory)][System.Collections.IEnumerable]$LocalUsers,
+        [Parameter(Mandatory)][System.Collections.Generic.HashSet[string]]$AdminUserNames
+    )
+
+    while ($true) {
+        $prompt = if ([string]::IsNullOrWhiteSpace($DefaultValue)) {
+            $PromptText
+        }
+        else {
+            "$PromptText [$DefaultValue]"
+        }
+
+        $inputValue = Read-Host $prompt
+        if ([string]::IsNullOrWhiteSpace($inputValue)) {
+            if ([string]::IsNullOrWhiteSpace($DefaultValue)) {
+                Write-Host 'Value is required.' -ForegroundColor Yellow
+                continue
+            }
+
+            $inputValue = $DefaultValue
+        }
+
+        try {
+            $account = Resolve-LocalAccount -InputName $inputValue -LocalUsers $LocalUsers
+            Assert-LocalAdministratorAccount -UserName $account.UserName -AdminUserNames $AdminUserNames
+            return $account
+        }
+        catch {
+            Write-Host $_.Exception.Message -ForegroundColor Yellow
+        }
+    }
+}
+
+function Read-HotkeyFromPrompt {
+    param([Parameter(Mandatory)][string]$DefaultValue)
+
+    while ($true) {
+        $inputValue = Read-Host "Hotkey (plus-separated keys, example Ctrl+Alt+S) [$DefaultValue]"
+        if ([string]::IsNullOrWhiteSpace($inputValue)) {
+            $inputValue = $DefaultValue
+        }
+
+        try {
+            return ConvertFrom-HotkeyText -InputText $inputValue
+        }
+        catch {
+            Write-Host $_.Exception.Message -ForegroundColor Yellow
+        }
+    }
+}
+
+function Get-UserPicturePath {
+    param(
+        [string]$SidValue,
+        [Parameter(Mandatory)][string]$UserName
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($SidValue)) {
+        try {
+            $profile = Get-CimInstance Win32_UserProfile -Filter ("SID='{0}'" -f $SidValue) -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($profile -and -not [string]::IsNullOrWhiteSpace([string]$profile.LocalPath)) {
+                $accountPictureDir = Join-Path ([string]$profile.LocalPath) 'AppData\Roaming\Microsoft\Windows\AccountPictures'
+                if (Test-Path -LiteralPath $accountPictureDir) {
+                    $picture = Get-ChildItem -LiteralPath $accountPictureDir -File -ErrorAction SilentlyContinue |
+                        Where-Object { $_.Extension -match '^\.(png|jpg|jpeg|bmp)$' } |
+                        Sort-Object LastWriteTime -Descending |
+                        Select-Object -First 1
+                    if ($picture) {
+                        return $picture.FullName
+                    }
+                }
+            }
+        }
+        catch {
+        }
+    }
+
+    foreach ($extension in @('png', 'jpg', 'jpeg', 'bmp')) {
+        $candidate = Join-Path $env:ProgramData ("Microsoft\User Account Pictures\{0}.{1}" -f $UserName, $extension)
+        if (Test-Path -LiteralPath $candidate) {
+            return $candidate
+        }
+    }
+
+    $fallback = Join-Path $env:ProgramData 'Microsoft\User Account Pictures\user.png'
+    if (Test-Path -LiteralPath $fallback) {
+        return $fallback
+    }
+
+    return $null
+}
+
+function New-ListenerTaskName {
+    param(
+        [string]$SidValue,
+        [Parameter(Mandatory)][string]$UserName
+    )
+
+    $nameSource = if ([string]::IsNullOrWhiteSpace($SidValue)) { $UserName } else { $SidValue }
+    $cleanSid = ($nameSource -replace '[^A-Za-z0-9\-]', '_')
+    return "$listenerTaskPrefix-$cleanSid"
+}
+
 function New-EncodedSwitchCommand {
-    param([Parameter(Mandatory)][string]$ConfigFilePath)
+    param(
+        [Parameter(Mandatory)][string]$ConfigFilePath,
+        [Parameter(Mandatory)][string]$HotkeyId
+    )
 
     $configLiteral = ConvertTo-SingleQuotedLiteral -Value $ConfigFilePath
+    $hotkeyLiteral = ConvertTo-SingleQuotedLiteral -Value $HotkeyId
 
     $template = @'
 $ErrorActionPreference = 'Stop'
 $configPath = __CONFIG_PATH__
+$hotkeyId = __HOTKEY_ID__
 $baseDir = [System.IO.Path]::GetDirectoryName($configPath)
 $logPath = Join-Path $baseDir 'switch.log'
 
@@ -263,6 +560,109 @@ function Unprotect-Secret([string]$CipherText) {
     return [System.Text.Encoding]::UTF8.GetString($plainBytes)
 }
 
+function Get-UserRecord([object]$Config, [string]$UserName) {
+    foreach ($entry in @($Config.Users)) {
+        if ([string]$entry.UserName -ieq $UserName) {
+            return $entry
+        }
+    }
+
+    return $null
+}
+
+function Select-TargetFromUi([array]$Candidates) {
+    try {
+        Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
+        Add-Type -AssemblyName System.Drawing -ErrorAction Stop
+    }
+    catch {
+        Write-Log ('UI assemblies unavailable: ' + $_.Exception.Message)
+        return [pscustomobject]@{
+            Status   = 'Unavailable'
+            UserName = $null
+        }
+    }
+
+    $script:selectedUser = $null
+    $form = New-Object System.Windows.Forms.Form
+    $form.Text = 'Choose Account'
+    $form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
+    $form.Width = 520
+    $form.Height = 380
+    $form.TopMost = $true
+
+    $flow = New-Object System.Windows.Forms.FlowLayoutPanel
+    $flow.Dock = [System.Windows.Forms.DockStyle]::Top
+    $flow.FlowDirection = [System.Windows.Forms.FlowDirection]::TopDown
+    $flow.WrapContents = $false
+    $flow.AutoScroll = $true
+    $flow.Width = 500
+    $flow.Height = 300
+
+    foreach ($candidate in $Candidates) {
+        $button = New-Object System.Windows.Forms.Button
+        $button.Width = 470
+        $button.Height = 72
+
+        $displayName = [string]$candidate.FullName
+        if ([string]::IsNullOrWhiteSpace($displayName)) {
+            $displayName = [string]$candidate.UserName
+        }
+
+        $button.Text = "$displayName`r`n$([string]$candidate.Qualified)"
+        $button.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+
+        $picturePath = [string]$candidate.PicturePath
+        if (-not [string]::IsNullOrWhiteSpace($picturePath) -and (Test-Path -LiteralPath $picturePath)) {
+            try {
+                $image = [System.Drawing.Image]::FromFile($picturePath)
+                $button.Image = $image
+                $button.ImageAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+                $button.TextImageRelation = [System.Windows.Forms.TextImageRelation]::ImageBeforeText
+            }
+            catch {
+            }
+        }
+
+        $button.Tag = [string]$candidate.UserName
+        $button.Add_Click({
+            param($sender, $eventArgs)
+            $script:selectedUser = [string]$sender.Tag
+            $form.DialogResult = [System.Windows.Forms.DialogResult]::OK
+            $form.Close()
+        })
+
+        [void]$flow.Controls.Add($button)
+    }
+
+    $cancelButton = New-Object System.Windows.Forms.Button
+    $cancelButton.Text = 'Cancel'
+    $cancelButton.Width = 100
+    $cancelButton.Height = 32
+    $cancelButton.Top = 305
+    $cancelButton.Left = 390
+    $cancelButton.Add_Click({
+        $form.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
+        $form.Close()
+    })
+
+    [void]$form.Controls.Add($flow)
+    [void]$form.Controls.Add($cancelButton)
+    [void]$form.ShowDialog()
+
+    if ([string]::IsNullOrWhiteSpace($script:selectedUser)) {
+        return [pscustomobject]@{
+            Status   = 'Cancelled'
+            UserName = $null
+        }
+    }
+
+    return [pscustomobject]@{
+        Status   = 'Selected'
+        UserName = $script:selectedUser
+    }
+}
+
 try {
     Assert-Admin
 
@@ -273,26 +673,68 @@ try {
     $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
     $currentUser = [System.Environment]::UserName
 
-    if ($currentUser -ieq $config.PrimaryUser) {
-        $targetUser = [string]$config.SecondaryUser
-        $encryptedPassword = [string]$config.SecondaryPasswordEnc
-        $targetSid = [string]$config.SecondaryUserSid
+    $profiles = @($config.Profiles | Where-Object { [string]$_.HotkeyId -eq $hotkeyId })
+    if ($profiles.Count -eq 0) {
+        throw "No profile is mapped to hotkey id '$hotkeyId'."
     }
-    elseif ($currentUser -ieq $config.SecondaryUser) {
-        $targetUser = [string]$config.PrimaryUser
-        $encryptedPassword = [string]$config.PrimaryPasswordEnc
-        $targetSid = [string]$config.PrimaryUserSid
+
+    $candidateMap = @{}
+    foreach ($profile in $profiles) {
+        $userA = [string]$profile.UserA
+        $userB = [string]$profile.UserB
+
+        if ($currentUser -ieq $userA) {
+            $targetUser = $userB
+        }
+        elseif ($currentUser -ieq $userB) {
+            $targetUser = $userA
+        }
+        else {
+            continue
+        }
+
+        if (-not $candidateMap.ContainsKey($targetUser)) {
+            $record = Get-UserRecord -Config $config -UserName $targetUser
+            if ($record) {
+                $candidateMap[$targetUser] = $record
+            }
+        }
+    }
+
+    $candidates = @($candidateMap.GetEnumerator() | ForEach-Object { $_.Value } | Sort-Object UserName)
+    if ($candidates.Count -eq 0) {
+        throw "Current user '$currentUser' is not part of any profile for hotkey id '$hotkeyId'."
+    }
+
+    if ($candidates.Count -eq 1) {
+        $targetRecord = $candidates[0]
     }
     else {
-        throw "Current user '$currentUser' is not part of configured switch pair."
+        $uiResult = Select-TargetFromUi -Candidates $candidates
+        if ([string]$uiResult.Status -eq 'Unavailable') {
+            $targetRecord = $candidates[0]
+            Write-Log ("Chooser UI unavailable; falling back to first target '{0}'." -f [string]$targetRecord.UserName)
+        }
+        elseif ([string]$uiResult.Status -eq 'Cancelled') {
+            Write-Log 'Switch cancelled from chooser UI.'
+            return
+        }
+        else {
+            $targetRecord = Get-UserRecord -Config $config -UserName ([string]$uiResult.UserName)
+        }
+        if (-not $targetRecord) {
+            throw "UI selected unknown user '$([string]$uiResult.UserName)'."
+        }
     }
 
-    $password = Unprotect-Secret -CipherText $encryptedPassword
+    $targetUser = [string]$targetRecord.UserName
+    $password = Unprotect-Secret -CipherText ([string]$targetRecord.PasswordEnc)
     if ([string]::IsNullOrWhiteSpace($password)) {
-        throw 'Target password could not be decrypted.'
+        throw "Target password for '$targetUser' could not be decrypted."
     }
 
-    $domain = '.'
+    $targetSid = [string]$targetRecord.SidValue
+    $domain = $env:COMPUTERNAME
     $winlogonPath = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
 
     Set-ItemProperty -Path $winlogonPath -Name 'AutoAdminLogon' -Type String -Value '1'
@@ -303,30 +745,15 @@ try {
     Set-ItemProperty -Path $winlogonPath -Name 'AltDefaultUserName' -Type String -Value $targetUser
     Set-ItemProperty -Path $winlogonPath -Name 'AltDefaultDomainName' -Type String -Value $domain
     Set-ItemProperty -Path $winlogonPath -Name 'LastUsedUsername' -Type String -Value ($domain + '\' + $targetUser)
+
     if (-not [string]::IsNullOrWhiteSpace($targetSid)) {
         Set-ItemProperty -Path $winlogonPath -Name 'AutoLogonSID' -Type String -Value $targetSid
     }
     else {
         Remove-ItemProperty -Path $winlogonPath -Name 'AutoLogonSID' -ErrorAction SilentlyContinue
     }
+
     Remove-ItemProperty -Path $winlogonPath -Name 'AutoLogonCount' -ErrorAction SilentlyContinue
-
-    $snapshot = Get-ItemProperty -Path $winlogonPath -ErrorAction SilentlyContinue
-    if ($snapshot) {
-        Write-Log ("Winlogon snapshot: AutoAdminLogon={0}; ForceAutoLogon={1}; DefaultUserName={2}; DefaultDomainName={3}; AutoLogonSID={4}" -f $snapshot.AutoAdminLogon, $snapshot.ForceAutoLogon, $snapshot.DefaultUserName, $snapshot.DefaultDomainName, $snapshot.AutoLogonSID)
-    }
-
-    $policyPath = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
-    if (Test-Path -LiteralPath $policyPath) {
-        $policy = Get-ItemProperty -Path $policyPath -ErrorAction SilentlyContinue
-        if ($policy) {
-            $caption = [string]$policy.legalnoticecaption
-            $text = [string]$policy.legalnoticetext
-            if (-not [string]::IsNullOrWhiteSpace($caption) -or -not [string]::IsNullOrWhiteSpace($text)) {
-                Write-Log 'WARNING: Legal notice policy is enabled and can block automatic sign-in.'
-            }
-        }
-    }
 
     $switchMode = if ($config.SwitchMode) { [string]$config.SwitchMode } else { 'Logoff' }
     if ($switchMode -ieq 'Restart') {
@@ -338,17 +765,18 @@ try {
         $switchMode = 'Logoff'
     }
 
-    Write-Log "Prepared AutoAdminLogon+ForceAutoLogon for '$targetUser' (triggered by '$currentUser')."
+    Write-Log "Prepared auto sign-in for '$targetUser' (triggered by '$currentUser', hotkey id '$hotkeyId')."
     Write-Log "Switch action: $switchMode ($shutdownArgs)"
+
     Start-Sleep -Milliseconds 150
     Start-Process -FilePath shutdown.exe -ArgumentList $shutdownArgs -WindowStyle Hidden
 }
 catch {
-    Write-Log ("ERROR: " + $_.Exception.Message)
+    Write-Log ('ERROR: ' + $_.Exception.Message)
 }
 '@
 
-    $script = $template.Replace('__CONFIG_PATH__', $configLiteral)
+    $script = $template.Replace('__CONFIG_PATH__', $configLiteral).Replace('__HOTKEY_ID__', $hotkeyLiteral)
     $bytes = [System.Text.Encoding]::Unicode.GetBytes($script)
     return [System.Convert]::ToBase64String($bytes)
 }
@@ -364,46 +792,98 @@ function Write-Utf8NoBomFile {
 }
 
 function Write-ListenerScript {
-    param([Parameter(Mandatory)][string]$Path)
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][array]$Hotkeys
+    )
 
-    $content = @'
+    $sortedHotkeys = @($Hotkeys | Sort-Object { -1 * $_.Keys.Count })
+
+    $comboEntries = foreach ($hotkey in $sortedHotkeys) {
+        $keyLiterals = @($hotkey.Keys | ForEach-Object { ConvertTo-AhkStringLiteral -Value $_ }) -join ', '
+        ('    Map("id", {0}, "keys", Array({1}), "triggered", false)' -f (ConvertTo-AhkStringLiteral -Value $hotkey.HotkeyId), $keyLiterals)
+    }
+
+    $commandEntries = foreach ($hotkey in $sortedHotkeys) {
+        ('    {0}, commandsDir . "\{1}.b64"' -f (ConvertTo-AhkStringLiteral -Value $hotkey.HotkeyId), $hotkey.HotkeyId)
+    }
+
+    $comboBlock = [string]::Join(",`r`n", $comboEntries)
+    $commandBlock = [string]::Join(",`r`n", $commandEntries)
+
+    $content = @"
 #Requires AutoHotkey v2.0
 #SingleInstance Force
 
-encodedPath := A_ScriptDir . "\switch-command.b64"
-triggered := false
+commandsDir := A_ScriptDir . "\commands"
+switchInProgress := false
 
-CheckCombo() {
-    global triggered
+combos := Array(
+$comboBlock
+)
 
-    if triggered {
+commandMap := Map(
+$commandBlock
+)
+
+SetTimer(CheckCombos, 35)
+
+CheckCombos(*) {
+    global combos
+
+    for combo in combos {
+        if combo["triggered"] {
+            if !IsAnyKeyDown(combo["keys"]) {
+                combo["triggered"] := false
+            }
+            continue
+        }
+
+        if IsComboPressed(combo["keys"]) {
+            combo["triggered"] := true
+            RunSwitch(combo["id"])
+            return
+        }
+    }
+}
+
+IsComboPressed(keys) {
+    for keyName in keys {
+        if !GetKeyState(keyName, "P") {
+            return false
+        }
+    }
+
+    return true
+}
+
+IsAnyKeyDown(keys) {
+    for keyName in keys {
+        if GetKeyState(keyName, "P") {
+            return true
+        }
+    }
+
+    return false
+}
+
+ResetSwitchGuard(*) {
+    global switchInProgress
+    switchInProgress := false
+}
+
+RunSwitch(hotkeyId) {
+    global commandMap, switchInProgress
+
+    if switchInProgress {
         return
     }
 
-    if GetKeyState("Numpad4", "P") && GetKeyState("Numpad5", "P") && GetKeyState("Numpad6", "P") {
-        triggered := true
-        RunSwitch()
+    if !commandMap.Has(hotkeyId) {
+        return
     }
-}
 
-~Numpad4::CheckCombo()
-~Numpad5::CheckCombo()
-~Numpad6::CheckCombo()
-
-~Numpad4 Up::ResetTrigger
-~Numpad5 Up::ResetTrigger
-~Numpad6 Up::ResetTrigger
-
-ResetTrigger(*) {
-    global triggered
-    if !GetKeyState("Numpad4", "P") && !GetKeyState("Numpad5", "P") && !GetKeyState("Numpad6", "P") {
-        triggered := false
-    }
-}
-
-RunSwitch() {
-    global encodedPath
-
+    encodedPath := commandMap[hotkeyId]
     if !FileExist(encodedPath) {
         return
     }
@@ -417,13 +897,20 @@ RunSwitch() {
         encoded := SubStr(encoded, 2)
     }
 
+    switchInProgress := true
+    SetTimer(ResetSwitchGuard, -3000)
+
+    psExe := A_WinDir . "\System32\WindowsPowerShell\v1.0\powershell.exe"
+    command := '"' . psExe . '" -NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand ' . encoded
+
     try {
-        Run("powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand " . encoded, , "Hide")
+        Run(command, , "Hide")
     }
     catch {
+        ResetSwitchGuard()
     }
 }
-'@
+"@
 
     Write-Utf8NoBomFile -Path $Path -Content $content
 }
@@ -530,75 +1017,209 @@ if ($Mode -eq 'Uninstall') {
     return
 }
 
-if ([string]::IsNullOrWhiteSpace($PrimaryUser) -or [string]::IsNullOrWhiteSpace($SecondaryUser)) {
-    throw 'Both PrimaryUser and SecondaryUser are required for install.'
-}
-
-$primaryAccount = Resolve-LocalAccount -InputName $PrimaryUser
-$secondaryAccount = Resolve-LocalAccount -InputName $SecondaryUser
-
-if ($primaryAccount.UserName -eq $secondaryAccount.UserName) {
-    throw 'Primary and secondary users must be different.'
-}
-
-Assert-LocalAdministratorAccount -UserName $primaryAccount.UserName
-Assert-LocalAdministratorAccount -UserName $secondaryAccount.UserName
-
 $ahkExe = Get-AutoHotkeyExecutable
 if (-not $ahkExe) {
     throw 'AutoHotkey v2 was not found. Install AutoHotkey v2 first.'
 }
 
-$primaryPasswordSecure = Read-Host "Password for $($primaryAccount.Qualified)" -AsSecureString
-$secondaryPasswordSecure = Read-Host "Password for $($secondaryAccount.Qualified)" -AsSecureString
-
-$primaryPasswordPlain = Convert-SecureStringToPlainText -SecureString $primaryPasswordSecure
-$secondaryPasswordPlain = Convert-SecureStringToPlainText -SecureString $secondaryPasswordSecure
-
-if ([string]::IsNullOrWhiteSpace($primaryPasswordPlain)) {
-    throw "Password for $($primaryAccount.Qualified) cannot be blank."
+$localUsers = @(Get-LocalUser | Where-Object { $_.Enabled })
+if ($localUsers.Count -lt 2) {
+    throw 'At least two enabled local users are required.'
 }
 
-if ([string]::IsNullOrWhiteSpace($secondaryPasswordPlain)) {
-    throw "Password for $($secondaryAccount.Qualified) cannot be blank."
+$adminUserNames = Get-LocalAdministratorUserNames
+$localAdminUsers = @($localUsers | Where-Object { $adminUserNames.Contains([string]$_.Name) })
+if ($localAdminUsers.Count -lt 2) {
+    throw 'At least two enabled local users in local Administrators are required.'
 }
 
-$primaryCredentialCheck = Test-LocalCredential -QualifiedUser $primaryAccount.Qualified -Password $primaryPasswordPlain
-if (-not $primaryCredentialCheck.Success) {
-    throw "Password validation failed for $($primaryAccount.Qualified) (Win32 error $($primaryCredentialCheck.Win32Error)). Use the Windows account password, not a PIN."
+Write-Host 'Available local administrator accounts:'
+foreach ($adminUser in $localAdminUsers | Sort-Object Name) {
+    if ([string]::IsNullOrWhiteSpace([string]$adminUser.FullName)) {
+        Write-Host (" - {0}" -f $adminUser.Name)
+    }
+    else {
+        Write-Host (" - {0} ({1})" -f $adminUser.Name, $adminUser.FullName)
+    }
 }
 
-$secondaryCredentialCheck = Test-LocalCredential -QualifiedUser $secondaryAccount.Qualified -Password $secondaryPasswordPlain
-if (-not $secondaryCredentialCheck.Success) {
-    throw "Password validation failed for $($secondaryAccount.Qualified) (Win32 error $($secondaryCredentialCheck.Win32Error)). Use the Windows account password, not a PIN."
+$defaultUserA = $null
+$defaultUserB = $null
+
+if (-not [string]::IsNullOrWhiteSpace($DefaultPrimaryUser)) {
+    try {
+        $defaultUserA = (Resolve-LocalAccount -InputName $DefaultPrimaryUser -LocalUsers $localUsers).UserName
+    }
+    catch {
+    }
+}
+if ($defaultUserA -and -not $adminUserNames.Contains($defaultUserA)) {
+    $defaultUserA = $null
+}
+if (-not $defaultUserA) {
+    $defaultUserA = [string]$localAdminUsers[0].Name
 }
 
-$primaryPasswordEncrypted = Protect-PlainTextLocalMachine -PlainText $primaryPasswordPlain
-$secondaryPasswordEncrypted = Protect-PlainTextLocalMachine -PlainText $secondaryPasswordPlain
+if (-not [string]::IsNullOrWhiteSpace($DefaultSecondaryUser)) {
+    try {
+        $defaultUserB = (Resolve-LocalAccount -InputName $DefaultSecondaryUser -LocalUsers $localUsers).UserName
+    }
+    catch {
+    }
+}
+if ($defaultUserB -and -not $adminUserNames.Contains($defaultUserB)) {
+    $defaultUserB = $null
+}
+if (-not $defaultUserB -or $defaultUserB -ieq $defaultUserA) {
+    $fallbackSecondary = $localAdminUsers | Where-Object { [string]$_.Name -ine $defaultUserA } | Select-Object -First 1
+    if (-not $fallbackSecondary) {
+        throw 'Could not determine a secondary default user. Make sure at least two admin users exist.'
+    }
+
+    $defaultUserB = [string]$fallbackSecondary.Name
+}
+
+$defaultHotkeyNormalized = (ConvertFrom-HotkeyText -InputText $DefaultHotkey).Canonical
+
+Write-Host ''
+Write-Host 'Configure one or more switch profiles. Each profile links two users and one hotkey.'
+Write-Host 'If the same hotkey has multiple valid targets for the current user, a chooser UI will appear.'
+Write-Host ''
+
+$profileCount = Read-ProfileCount
+$profiles = New-Object System.Collections.Generic.List[object]
+$hotkeys = New-Object System.Collections.Generic.List[object]
+$hotkeyIdsByCanonical = @{}
+$selectedAccounts = @{}
+$profileSignature = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+
+$nextHotkeyId = 1
+$lastHotkey = $defaultHotkeyNormalized
+$nextDefaultA = $defaultUserA
+$nextDefaultB = $defaultUserB
+
+for ($index = 1; $index -le $profileCount; $index++) {
+    Write-Host ''
+    Write-Host ("Profile {0} of {1}" -f $index, $profileCount)
+
+    $userA = Read-LocalAccountFromPrompt -PromptText 'First user' -DefaultValue $nextDefaultA -LocalUsers $localUsers -AdminUserNames $adminUserNames
+
+    while ($true) {
+        $userB = Read-LocalAccountFromPrompt -PromptText 'Second user' -DefaultValue $nextDefaultB -LocalUsers $localUsers -AdminUserNames $adminUserNames
+        if ($userB.UserName -ieq $userA.UserName) {
+            Write-Host 'First and second user must be different.' -ForegroundColor Yellow
+            continue
+        }
+
+        break
+    }
+
+    $hotkey = Read-HotkeyFromPrompt -DefaultValue $lastHotkey
+    $canonicalPair = @($userA.UserName, $userB.UserName) | Sort-Object
+    $signature = ('{0}|{1}|{2}' -f $canonicalPair[0], $canonicalPair[1], $hotkey.Canonical)
+    if ($profileSignature.Contains($signature)) {
+        Write-Host 'Duplicate profile detected; skipping this duplicate entry.' -ForegroundColor Yellow
+        $index--
+        continue
+    }
+
+    [void]$profileSignature.Add($signature)
+
+    if ($hotkeyIdsByCanonical.ContainsKey($hotkey.Canonical)) {
+        $hotkeyId = [string]$hotkeyIdsByCanonical[$hotkey.Canonical]
+    }
+    else {
+        $hotkeyId = ('HK{0}' -f $nextHotkeyId)
+        $nextHotkeyId += 1
+        $hotkeyIdsByCanonical[$hotkey.Canonical] = $hotkeyId
+
+        [void]$hotkeys.Add([pscustomobject]@{
+            HotkeyId = $hotkeyId
+            Hotkey   = $hotkey.Canonical
+            Keys     = @($hotkey.Keys)
+        })
+    }
+
+    $profileId = ('P{0}' -f $index)
+    [void]$profiles.Add([pscustomobject]@{
+        ProfileId   = $profileId
+        UserA       = $userA.UserName
+        UserB       = $userB.UserName
+        Hotkey      = $hotkey.Canonical
+        HotkeyId    = $hotkeyId
+        DisplayName = ('{0} <-> {1}' -f $userA.UserName, $userB.UserName)
+    })
+
+    $selectedAccounts[$userA.UserName] = $userA
+    $selectedAccounts[$userB.UserName] = $userB
+
+    $lastHotkey = $hotkey.Canonical
+    $nextDefaultA = $userA.UserName
+    $nextDefaultB = $userB.UserName
+
+    Write-Host ("Added profile: {0} <-> {1} on {2}" -f $userA.UserName, $userB.UserName, $hotkey.Canonical)
+}
+
+if ($profiles.Count -eq 0) {
+    throw 'No valid switch profiles were configured.'
+}
+
+$userRecords = New-Object System.Collections.Generic.List[object]
+foreach ($userName in ($selectedAccounts.Keys | Sort-Object)) {
+    $account = $selectedAccounts[$userName]
+
+    $passwordSecure = Read-Host ("Password for {0}" -f $account.Qualified) -AsSecureString
+    $passwordPlain = Convert-SecureStringToPlainText -SecureString $passwordSecure
+
+    if ([string]::IsNullOrWhiteSpace($passwordPlain)) {
+        throw "Password for $($account.Qualified) cannot be blank."
+    }
+
+    $credentialCheck = Test-LocalCredential -QualifiedUser $account.Qualified -Password $passwordPlain
+    if (-not $credentialCheck.Success) {
+        throw "Password validation failed for $($account.Qualified) (Win32 error $($credentialCheck.Win32Error)). Use the Windows account password, not a PIN."
+    }
+
+    $passwordEncrypted = Protect-PlainTextLocalMachine -PlainText $passwordPlain
+    $picturePath = Get-UserPicturePath -SidValue $account.SidValue -UserName $account.UserName
+
+    [void]$userRecords.Add([pscustomobject]@{
+        UserName    = $account.UserName
+        FullName    = $account.FullName
+        Qualified   = $account.Qualified
+        SidValue    = $account.SidValue
+        PasswordEnc = $passwordEncrypted
+        PicturePath = $picturePath
+    })
+
+    $passwordPlain = $null
+}
 
 New-Item -Path $installDir -ItemType Directory -Force | Out-Null
+New-Item -Path $commandsDir -ItemType Directory -Force | Out-Null
+
+Get-ChildItem -LiteralPath $commandsDir -File -Filter '*.b64' -ErrorAction SilentlyContinue |
+    Remove-Item -Force -ErrorAction SilentlyContinue
 
 $config = [pscustomobject]@{
-    Version              = 2
-    PrimaryUser          = $primaryAccount.UserName
-    SecondaryUser        = $secondaryAccount.UserName
-    PrimaryQualifiedUser = $primaryAccount.Qualified
-    SecondaryQualifiedUser = $secondaryAccount.Qualified
-    PrimaryUserSid       = $primaryAccount.SidValue
-    SecondaryUserSid     = $secondaryAccount.SidValue
-    PrimaryPasswordEnc   = $primaryPasswordEncrypted
-    SecondaryPasswordEnc = $secondaryPasswordEncrypted
-    SwitchMode           = $defaultSwitchMode
-    MachineName          = $env:COMPUTERNAME
-    UpdatedAtUtc         = [System.DateTime]::UtcNow.ToString('o')
+    Version      = 3
+    SwitchMode   = $defaultSwitchMode
+    MachineName  = $env:COMPUTERNAME
+    Users        = @($userRecords)
+    Profiles     = @($profiles)
+    Hotkeys      = @($hotkeys)
+    UpdatedAtUtc = [System.DateTime]::UtcNow.ToString('o')
 }
 
-$config | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $configPath -Encoding UTF8
+$config | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $configPath -Encoding UTF8
 
-$encodedCommand = New-EncodedSwitchCommand -ConfigFilePath $configPath
-Write-Utf8NoBomFile -Path $encodedSwitchPath -Content $encodedCommand
+foreach ($hotkey in $hotkeys) {
+    $encodedCommand = New-EncodedSwitchCommand -ConfigFilePath $configPath -HotkeyId $hotkey.HotkeyId
+    $commandPath = Join-Path $commandsDir ("{0}.b64" -f $hotkey.HotkeyId)
+    Write-Utf8NoBomFile -Path $commandPath -Content $encodedCommand
+}
 
-Write-ListenerScript -Path $listenerScriptPath
+Write-ListenerScript -Path $listenerScriptPath -Hotkeys @($hotkeys)
 Stop-ListenerProcesses -ScriptPath $listenerScriptPath
 
 $staleTaskNames = @(Get-ScheduledTask -ErrorAction SilentlyContinue |
@@ -606,30 +1227,31 @@ $staleTaskNames = @(Get-ScheduledTask -ErrorAction SilentlyContinue |
     Select-Object -ExpandProperty TaskName -Unique)
 $staleTaskNames += $legacyListenerTaskName
 
-foreach ($taskName in $staleTaskNames) {
+foreach ($taskName in $staleTaskNames | Select-Object -Unique) {
     Remove-TaskIfExists -TaskName $taskName
 }
 
-$primaryTaskName = New-ListenerTaskName -SidValue $primaryAccount.SidValue -UserName $primaryAccount.UserName
-$secondaryTaskName = New-ListenerTaskName -SidValue $secondaryAccount.SidValue -UserName $secondaryAccount.UserName
-
-Register-ListenerTask -TaskName $primaryTaskName -AutoHotkeyExe $ahkExe -ListenerScriptPath $listenerScriptPath -UserId $primaryAccount.Qualified
-Register-ListenerTask -TaskName $secondaryTaskName -AutoHotkeyExe $ahkExe -ListenerScriptPath $listenerScriptPath -UserId $secondaryAccount.Qualified
-
-try {
-    Start-ScheduledTask -TaskName $primaryTaskName -ErrorAction SilentlyContinue
-    Start-ScheduledTask -TaskName $secondaryTaskName -ErrorAction SilentlyContinue
-}
-catch {
+$registeredTaskNames = New-Object System.Collections.Generic.List[string]
+foreach ($userRecord in $userRecords) {
+    $taskName = New-ListenerTaskName -SidValue ([string]$userRecord.SidValue) -UserName ([string]$userRecord.UserName)
+    Register-ListenerTask -TaskName $taskName -AutoHotkeyExe $ahkExe -ListenerScriptPath $listenerScriptPath -UserId ([string]$userRecord.Qualified)
+    [void]$registeredTaskNames.Add($taskName)
 }
 
-$primaryPasswordPlain = $null
-$secondaryPasswordPlain = $null
+foreach ($taskName in $registeredTaskNames) {
+    try {
+        Start-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+    }
+    catch {
+    }
+}
 
-Write-Host "Resolved primary account: $($primaryAccount.Qualified)"
-Write-Host "Resolved secondary account: $($secondaryAccount.Qualified)"
-Write-Host "Listener task (primary): $primaryTaskName"
-Write-Host "Listener task (secondary): $secondaryTaskName"
-Write-Host "Switch action: $defaultSwitchMode"
+Write-Host ''
+Write-Host 'Configured profiles:'
+foreach ($profile in $profiles) {
+    Write-Host (" - {0}: {1} <-> {2} ({3})" -f $profile.ProfileId, $profile.UserA, $profile.UserB, $profile.Hotkey)
+}
+
+Write-Host ''
 Write-Host 'InstantLoginSwitcher installed.'
-Write-Host 'Hotkey: Numpad4 + Numpad5 + Numpad6'
+Write-Host 'Sign out and sign back in once, then test the configured hotkeys.'

@@ -20,7 +20,11 @@ try {
     }
 
     if ($mode -eq 'Install') {
-        & $core -Mode Install -PrimaryUser $env:ILS_PRIMARY_USER -SecondaryUser $env:ILS_SECONDARY_USER
+        & $core `
+            -Mode Install `
+            -DefaultPrimaryUser $env:ILS_PRIMARY_USER `
+            -DefaultSecondaryUser $env:ILS_SECONDARY_USER `
+            -DefaultHotkey $env:ILS_DEFAULT_HOTKEY
     }
     elseif ($mode -eq 'Uninstall') {
         & $core -Mode Uninstall
