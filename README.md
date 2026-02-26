@@ -66,6 +66,7 @@ Hotkey rules:
 - No overlapping key meanings in one hotkey (example: `Delete+NumpadDot` is rejected).
 - Must include at least one non-modifier key.
 - Key order is normalized automatically (for example `Alt+Ctrl+S` becomes `Ctrl+Alt+S`).
+- Generic modifiers (`Ctrl`, `Alt`, `Shift`, `Win`) match both left and right keys.
 - Examples: `Ctrl+Alt+S`, `Numpad4+Numpad6`, `Shift+F12`.
 
 ## Three Users Example

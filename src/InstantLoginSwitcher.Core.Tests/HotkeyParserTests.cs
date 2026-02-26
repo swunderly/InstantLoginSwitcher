@@ -62,4 +62,24 @@ public sealed class HotkeyParserTests
 
         Assert.Contains("overlaps", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public void Parse_CtrlTokenMatchesRightOrLeftControl()
+    {
+        var definition = _parser.Parse("Ctrl+K");
+
+        var rightCtrlPressed = definition.IsPressed(new HashSet<int> { 0xA3, 0x4B });
+        var leftCtrlPressed = definition.IsPressed(new HashSet<int> { 0xA2, 0x4B });
+
+        Assert.True(rightCtrlPressed);
+        Assert.True(leftCtrlPressed);
+    }
+
+    [Fact]
+    public void Parse_NormalizesWindowsModifierAlias()
+    {
+        var definition = _parser.Parse("windows+s");
+
+        Assert.Equal("Win+S", definition.CanonicalText);
+    }
 }

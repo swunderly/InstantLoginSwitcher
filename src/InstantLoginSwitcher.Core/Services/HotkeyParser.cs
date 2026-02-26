@@ -9,6 +9,7 @@ public sealed class HotkeyParser
         "Ctrl", "LCtrl", "RCtrl",
         "Alt", "LAlt", "RAlt",
         "Shift", "LShift", "RShift",
+        "Win",
         "LWin", "RWin"
     };
 
@@ -26,8 +27,9 @@ public sealed class HotkeyParser
         ["SHIFT"] = "Shift",
         ["LSHIFT"] = "LShift",
         ["RSHIFT"] = "RShift",
-        ["WIN"] = "LWin",
-        ["WINDOWS"] = "LWin",
+        ["WIN"] = "Win",
+        ["WINDOWS"] = "Win",
+        ["SUPER"] = "Win",
         ["LWIN"] = "LWin",
         ["RWIN"] = "RWin",
         ["BS"] = "Backspace",
@@ -59,15 +61,16 @@ public sealed class HotkeyParser
 
     private static readonly Dictionary<string, int[]> KnownVirtualKeys = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["Ctrl"] = [0x11],
+        ["Ctrl"] = [0x11, 0xA2, 0xA3],
         ["LCtrl"] = [0xA2],
         ["RCtrl"] = [0xA3],
-        ["Alt"] = [0x12],
+        ["Alt"] = [0x12, 0xA4, 0xA5],
         ["LAlt"] = [0xA4],
         ["RAlt"] = [0xA5],
-        ["Shift"] = [0x10],
+        ["Shift"] = [0x10, 0xA0, 0xA1],
         ["LShift"] = [0xA0],
         ["RShift"] = [0xA1],
+        ["Win"] = [0x5B, 0x5C],
         ["LWin"] = [0x5B],
         ["RWin"] = [0x5C],
         ["Enter"] = [0x0D],
@@ -187,7 +190,7 @@ public sealed class HotkeyParser
             "Ctrl" or "LCtrl" or "RCtrl" => 10,
             "Alt" or "LAlt" or "RAlt" => 20,
             "Shift" or "LShift" or "RShift" => 30,
-            "LWin" or "RWin" => 40,
+            "Win" or "LWin" or "RWin" => 40,
             _ => 100
         };
     }
