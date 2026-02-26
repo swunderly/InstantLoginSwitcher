@@ -64,6 +64,7 @@ public partial class MainWindow : Window
         UpdateSelectionActionState();
         UpdateFormValidationState();
         UpdateFileActionState();
+        UpdateRuntimeActionState();
 
         ReloadState();
     }
@@ -501,6 +502,17 @@ public partial class MainWindow : Window
 
     private void QuickFixCurrentUser_Click(object sender, RoutedEventArgs e)
     {
+        if (!_profiles.Any(profile => profile.Enabled))
+        {
+            MessageBox.Show(
+                this,
+                "No enabled profiles are configured in the current view.\n\nAdd or enable a profile, then click Save And Apply before running Quick Fix.",
+                "InstantLoginSwitcher",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
         if (_hasUnsavedChanges || _hasDraftChanges)
         {
             MessageBox.Show(
@@ -583,6 +595,26 @@ public partial class MainWindow : Window
                     MessageBoxImage.Question);
                 if (decision != MessageBoxResult.Yes)
                 {
+                    return;
+                }
+            }
+            else
+            {
+                var activeHotkeys = GetActiveHotkeysForUser(config, currentUser);
+                if (activeHotkeys.Count == 0)
+                {
+                    SetStatus("Current user has no valid hotkey routes in saved configuration.");
+                    var runSetupCheck = MessageBox.Show(
+                        this,
+                        "Current user is included in saved profiles, but no valid hotkey routes are active.\n\nThis usually means an invalid hotkey or missing saved password for at least one target user.\n\nRun Check Setup now?",
+                        "InstantLoginSwitcher",
+                        MessageBoxButton.YesNo,
+                        MessageBoxImage.Warning);
+                    if (runSetupCheck == MessageBoxResult.Yes)
+                    {
+                        CheckSetup_Click(sender, new RoutedEventArgs());
+                    }
+
                     return;
                 }
             }
@@ -1264,13 +1296,24 @@ public partial class MainWindow : Window
             var requiredUsers = GetRequiredUsersFromEnabledProfiles(enabledProfiles);
             var currentUserIncluded = requiredUsers.Any(user =>
                 user.Equals(Environment.UserName, StringComparison.OrdinalIgnoreCase));
+            var currentUserActiveHotkeys = currentUserIncluded
+                ? GetActiveHotkeysForUser(config, Environment.UserName)
+                : Array.Empty<string>();
             if (requiredUsers.Count > 0 && !currentUserIncluded)
             {
                 warnings.Add("Current signed-in user is not in any enabled profile.");
             }
-            else if (currentUserIncluded && !IsListenerMutexPresentForUser(Environment.UserName))
+            else if (currentUserIncluded)
             {
-                warnings.Add("Current user's listener process does not appear to be running right now.");
+                if (currentUserActiveHotkeys.Count == 0)
+                {
+                    warnings.Add("Current user is in enabled profiles but has no valid hotkey routes (check saved passwords and hotkeys).");
+                }
+
+                if (!IsListenerMutexPresentForUser(Environment.UserName))
+                {
+                    warnings.Add("Current user's listener process does not appear to be running right now.");
+                }
             }
 
             try
@@ -1371,6 +1414,11 @@ public partial class MainWindow : Window
             if (warnings.Any(warning => warning.Contains("listener process does not appear to be running", StringComparison.OrdinalIgnoreCase)))
             {
                 builder.AppendLine("Tip: Click 'Quick Fix Current User' and retest your hotkey.");
+            }
+
+            if (warnings.Any(warning => warning.Contains("no valid hotkey routes", StringComparison.OrdinalIgnoreCase)))
+            {
+                builder.AppendLine("Tip: Re-enter profile passwords or fix invalid hotkeys, click Save And Apply, then rerun Check Setup.");
             }
 
             if (warnings.Any(warning => warning.Contains("Unsaved UI edits are present.", StringComparison.OrdinalIgnoreCase)))
@@ -2020,6 +2068,22 @@ public partial class MainWindow : Window
         var enabledProfiles = config.Profiles.Where(profile => profile.Enabled).ToList();
         var requiredUsers = GetRequiredUsersFromEnabledProfiles(enabledProfiles);
         var chooserRoutes = GetChooserRouteSummaries(enabledProfiles);
+        var currentUserInEnabledProfiles = requiredUsers.Any(user =>
+            user.Equals(Environment.UserName, StringComparison.OrdinalIgnoreCase));
+        var activeHotkeysByUser = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var user in requiredUsers)
+        {
+            activeHotkeysByUser[user] = GetActiveHotkeysForUser(config, user);
+        }
+
+        var usersWithNoActiveHotkeys = activeHotkeysByUser
+            .Where(pair => pair.Value.Count == 0)
+            .Select(pair => pair.Key)
+            .OrderBy(user => user, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var currentUserActiveHotkeys = currentUserInEnabledProfiles
+            ? GetActiveHotkeysForUser(config, Environment.UserName)
+            : Array.Empty<string>();
 
         List<string> startupTasks;
         try
@@ -2095,11 +2159,13 @@ public partial class MainWindow : Window
         builder.AppendLine($"ConfigProfilesEnabled: {enabledProfiles.Count}");
         builder.AppendLine($"ChooserRouteCount: {chooserRoutes.Count}");
         builder.AppendLine($"ConfigUsersWithCredentials: {config.Users.Count(user => !string.IsNullOrWhiteSpace(user.PasswordEncrypted))}");
-        builder.AppendLine($"CurrentUserInEnabledProfiles: {requiredUsers.Any(user => user.Equals(Environment.UserName, StringComparison.OrdinalIgnoreCase))}");
+        builder.AppendLine($"CurrentUserInEnabledProfiles: {currentUserInEnabledProfiles}");
+        builder.AppendLine($"CurrentUserActiveHotkeys: {currentUserActiveHotkeys.Count}");
         builder.AppendLine($"ExpectedCurrentUserTask: {expectedCurrentUserTask}");
         builder.AppendLine($"ExpectedCurrentUserTaskPresent: {hasCurrentUserTask}");
         builder.AppendLine($"MissingExpectedTasks: {missingExpectedUsers.Count}");
         builder.AppendLine($"UnexpectedManagedTasks: {unexpectedStartupTasks.Count}");
+        builder.AppendLine($"UsersWithNoActiveHotkeys: {usersWithNoActiveHotkeys.Count}");
 
         IReadOnlyList<string> validationIssues;
         try
@@ -2138,6 +2204,25 @@ public partial class MainWindow : Window
             foreach (var route in chooserRoutes)
             {
                 builder.AppendLine($"  - {route}");
+            }
+        }
+
+        builder.AppendLine("ActiveHotkeysByUser:");
+        if (activeHotkeysByUser.Count == 0)
+        {
+            builder.AppendLine("  (none)");
+        }
+        else
+        {
+            foreach (var pair in activeHotkeysByUser.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase))
+            {
+                if (pair.Value.Count == 0)
+                {
+                    builder.AppendLine($"  - {pair.Key}: (none)");
+                    continue;
+                }
+
+                builder.AppendLine($"  - {pair.Key}: {string.Join(", ", pair.Value)}");
             }
         }
 
@@ -2223,6 +2308,67 @@ public partial class MainWindow : Window
             .Where(user => !string.IsNullOrWhiteSpace(user))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(user => user, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private IReadOnlyList<string> GetActiveHotkeysForUser(SwitcherConfig config, string userName)
+    {
+        if (string.IsNullOrWhiteSpace(userName))
+        {
+            return Array.Empty<string>();
+        }
+
+        var normalizedUser = userName.Trim();
+        if (string.IsNullOrWhiteSpace(normalizedUser))
+        {
+            return Array.Empty<string>();
+        }
+
+        var credentialUsers = config.Users
+            .Where(user => !string.IsNullOrWhiteSpace(user.UserName) && !string.IsNullOrWhiteSpace(user.PasswordEncrypted))
+            .Select(user => user.UserName.Trim())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var hotkeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var profile in config.Profiles.Where(profile => profile.Enabled))
+        {
+            var userA = profile.UserA?.Trim() ?? string.Empty;
+            var userB = profile.UserB?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(userA) ||
+                string.IsNullOrWhiteSpace(userB) ||
+                userA.Equals(userB, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            string? targetUser = null;
+            if (userA.Equals(normalizedUser, StringComparison.OrdinalIgnoreCase))
+            {
+                targetUser = userB;
+            }
+            else if (userB.Equals(normalizedUser, StringComparison.OrdinalIgnoreCase))
+            {
+                targetUser = userA;
+            }
+
+            if (string.IsNullOrWhiteSpace(targetUser) || !credentialUsers.Contains(targetUser))
+            {
+                continue;
+            }
+
+            try
+            {
+                var canonical = _hotkeyParser.Parse(profile.Hotkey).CanonicalText;
+                hotkeys.Add(canonical);
+            }
+            catch
+            {
+                // Invalid hotkeys are surfaced by setup validation.
+            }
+        }
+
+        return hotkeys
+            .OrderBy(hotkey => hotkey, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
 
@@ -2447,9 +2593,28 @@ public partial class MainWindow : Window
         }
     }
 
+    private void UpdateRuntimeActionState()
+    {
+        var hasEnabledProfiles = _profiles.Any(profile => profile.Enabled);
+        var hasUnsavedEdits = _hasUnsavedChanges || _hasDraftChanges;
+
+        StartListenerButton.IsEnabled = hasEnabledProfiles;
+        StartListenerButton.ToolTip = hasEnabledProfiles
+            ? "Start listener mode for the current signed-in account using saved config."
+            : "Add and enable at least one profile first.";
+
+        QuickFixButton.IsEnabled = hasEnabledProfiles && !hasUnsavedEdits;
+        QuickFixButton.ToolTip = !hasEnabledProfiles
+            ? "Add and enable at least one profile first."
+            : hasUnsavedEdits
+                ? "Click Save And Apply first, then run Quick Fix."
+                : "Repair startup tasks, start listener for current user, and run setup check.";
+    }
+
     private void UpdateDirtyUiState()
     {
         Title = (_hasUnsavedChanges || _hasDraftChanges) ? $"{AppTitle} *" : AppTitle;
+        UpdateRuntimeActionState();
     }
 
     private void RunWithoutDirtyTracking(Action action)

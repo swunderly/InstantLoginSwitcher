@@ -143,15 +143,20 @@ Use the built-in buttons in the main window:
 - `Repair + Check Setup` (repairs startup tasks and immediately runs setup validation)
 - `Quick Fix Current User` (repairs startup tasks, starts listener for current user, then runs setup check)
 - `Start Listener For Current User` (starts listener mode immediately for the signed-in account so you can test without signing out)
-- `Check Setup` (flags missing credentials, invalid/duplicate enabled profiles, missing startup tasks per enabled user, and stale old tasks)
+- `Check Setup` (flags missing credentials, invalid/duplicate enabled profiles, missing startup tasks per enabled user, stale old tasks, and missing active routes)
 - `Copy Diagnostics` (copies profile/task summary plus recent log tails to clipboard)
 - `Save Diagnostics To File` (writes a timestamped diagnostics text file into `C:\ProgramData\InstantLoginSwitcher`)
+
+`Quick Fix Current User` is disabled until you save edits and have at least one enabled profile.
+`Start Listener For Current User` is disabled when no enabled profiles exist.
 
 `Start Listener For Current User` now waits briefly for startup confirmation in `listener.log` and warns if confirmation is not detected.
 Listener startup confirmation now checks newly written log content, reducing stale false positives from older log entries.
 `Start Listener For Current User` now avoids duplicate launches when possible by trying scheduled task start first, then direct fallback only when needed.
+`Start Listener For Current User` now pre-checks whether the current user has any valid hotkey routes and points you to `Check Setup` when none are active.
 `Check Setup` warns when unsaved UI edits are present because it validates the saved config on disk.
 `Check Setup` now also flags when the current user should have listener coverage but the listener process is not currently running.
+`Check Setup` now flags when current user is in enabled profiles but has no valid hotkey routes.
 
 Runtime files are in `C:\ProgramData\InstantLoginSwitcher`.
 On smaller windows, the action button row is horizontally scrollable.
@@ -159,6 +164,7 @@ Diagnostics now include validation issues such as invalid hotkeys or missing sto
 Diagnostics also report the expected startup task name for the current user and whether it exists.
 Diagnostics now include `ExpectedTasksByUser` and `UnexpectedStartupTasks` sections for faster task troubleshooting.
 Diagnostics include chooser-route summaries so you can see where one hotkey opens a target picker.
+Diagnostics include `ActiveHotkeysByUser` so you can confirm each user has switchable routes.
 If clipboard copy fails, `Copy Diagnostics` now falls back to saving a diagnostics file automatically.
 Diagnostics include an internal errors section if any data source (for example task query) fails.
 Diagnostics include config/backup file existence and last-write timestamps.
@@ -171,9 +177,10 @@ If a hotkey appears to do nothing:
 1. Click `Save And Apply`.
 2. Confirm the signed-in user is included in at least one enabled profile.
 3. Click `Quick Fix Current User`.
-4. If needed, click `Start Listener For Current User` to test listener start directly.
-5. If still needed, sign out and sign back in.
-6. Open `listener.log` and `switch.log` (or use `Save Diagnostics To File`) and review the latest entries.
+4. Click `Check Setup` and confirm it does not report "no valid hotkey routes" for the current user.
+5. If needed, click `Start Listener For Current User` to test listener start directly.
+6. If still needed, sign out and sign back in.
+7. Open `listener.log` and `switch.log` (or use `Save Diagnostics To File`) and review the latest entries.
 
 If `Save And Apply` reports startup-task failure, your profile changes are still saved; use `Quick Fix Current User` or `Repair + Check Setup` to retry task registration.
 
