@@ -120,6 +120,7 @@ public partial class MainWindow : Window
             UpdateSelectionActionState();
             UpdateFileActionState();
             SetStatus("Configuration loaded.");
+            UpdateRuntimeSummary();
         }
         catch (Exception exception)
         {
@@ -129,6 +130,7 @@ public partial class MainWindow : Window
                 "InstantLoginSwitcher",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
+            RuntimeSummaryText.Text = "Runtime summary unavailable because config failed to load.";
         }
     }
 
@@ -284,6 +286,7 @@ public partial class MainWindow : Window
 
             _configService.Save(_loadedConfig);
             SetStatus("Passwords updated for the selected profile users.");
+            UpdateRuntimeSummary();
         }
         catch (Exception exception)
         {
@@ -293,6 +296,7 @@ public partial class MainWindow : Window
                 "InstantLoginSwitcher",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
+            UpdateRuntimeSummary();
         }
     }
 
@@ -413,6 +417,10 @@ public partial class MainWindow : Window
                     MessageBoxImage.Error);
             }
         }
+        finally
+        {
+            UpdateRuntimeSummary();
+        }
     }
 
     private bool ResolveDraftBeforeSave()
@@ -507,6 +515,17 @@ public partial class MainWindow : Window
             MessageBox.Show(
                 this,
                 "No enabled profiles are configured in the current view.\n\nAdd or enable a profile, then click Save And Apply before running Quick Fix.",
+                "InstantLoginSwitcher",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
+        if (!IsCurrentUserInEnabledUiProfiles())
+        {
+            MessageBox.Show(
+                this,
+                $"Current user '{Environment.UserName}' is not in enabled profiles in this view.\n\nQuick Fix only applies to the signed-in user. Add a profile for this account, click Save And Apply, then retry.",
                 "InstantLoginSwitcher",
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);
@@ -687,6 +706,10 @@ public partial class MainWindow : Window
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
         }
+        finally
+        {
+            UpdateRuntimeSummary();
+        }
     }
 
     private void ClearForm_Click(object sender, RoutedEventArgs e)
@@ -727,10 +750,12 @@ public partial class MainWindow : Window
             _taskSchedulerService.RemoveAllManagedTasks();
             _switchExecutor.DisableAutoLogon();
             SetStatus("All startup tasks removed and auto-logon values cleared.");
+            UpdateRuntimeSummary();
         }
         catch (Exception exception)
         {
             MessageBox.Show(this, exception.Message, "InstantLoginSwitcher", MessageBoxButton.OK, MessageBoxImage.Error);
+            UpdateRuntimeSummary();
         }
     }
 
@@ -1238,6 +1263,7 @@ public partial class MainWindow : Window
                 "InstantLoginSwitcher",
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);
+            UpdateRuntimeSummary();
         }
         catch (Exception exception)
         {
@@ -1247,6 +1273,7 @@ public partial class MainWindow : Window
                 "InstantLoginSwitcher",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
+            UpdateRuntimeSummary();
         }
     }
 
@@ -1443,6 +1470,16 @@ public partial class MainWindow : Window
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
         }
+        finally
+        {
+            UpdateRuntimeSummary();
+        }
+    }
+
+    private void RefreshRuntimeStatus_Click(object sender, RoutedEventArgs e)
+    {
+        UpdateRuntimeSummary();
+        SetStatus("Runtime status refreshed.");
     }
 
     private void CopyDiagnostics_Click(object sender, RoutedEventArgs e)
@@ -1662,6 +1699,10 @@ public partial class MainWindow : Window
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
             return false;
+        }
+        finally
+        {
+            UpdateRuntimeSummary();
         }
     }
 
@@ -2593,22 +2634,98 @@ public partial class MainWindow : Window
         }
     }
 
+    private bool IsCurrentUserInEnabledUiProfiles()
+    {
+        var currentUser = Environment.UserName;
+        return _profiles.Any(profile =>
+            profile.Enabled &&
+            (string.Equals(profile.UserA, currentUser, StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(profile.UserB, currentUser, StringComparison.OrdinalIgnoreCase)));
+    }
+
     private void UpdateRuntimeActionState()
     {
         var hasEnabledProfiles = _profiles.Any(profile => profile.Enabled);
         var hasUnsavedEdits = _hasUnsavedChanges || _hasDraftChanges;
+        var currentUserCovered = IsCurrentUserInEnabledUiProfiles();
 
         StartListenerButton.IsEnabled = hasEnabledProfiles;
-        StartListenerButton.ToolTip = hasEnabledProfiles
-            ? "Start listener mode for the current signed-in account using saved config."
-            : "Add and enable at least one profile first.";
+        if (!hasEnabledProfiles)
+        {
+            StartListenerButton.ToolTip = "Add and enable at least one profile first.";
+        }
+        else if (hasUnsavedEdits)
+        {
+            StartListenerButton.ToolTip = "Start Listener uses saved config on disk. Unsaved edits are ignored until Save And Apply.";
+        }
+        else if (currentUserCovered)
+        {
+            StartListenerButton.ToolTip = "Start listener mode for the current signed-in account using saved config.";
+        }
+        else
+        {
+            StartListenerButton.ToolTip = "Current user is not in enabled profiles. You can still run this to verify listener startup.";
+        }
 
-        QuickFixButton.IsEnabled = hasEnabledProfiles && !hasUnsavedEdits;
-        QuickFixButton.ToolTip = !hasEnabledProfiles
-            ? "Add and enable at least one profile first."
-            : hasUnsavedEdits
-                ? "Click Save And Apply first, then run Quick Fix."
-                : "Repair startup tasks, start listener for current user, and run setup check.";
+        QuickFixButton.IsEnabled = hasEnabledProfiles && !hasUnsavedEdits && currentUserCovered;
+        if (!hasEnabledProfiles)
+        {
+            QuickFixButton.ToolTip = "Add and enable at least one profile first.";
+        }
+        else if (hasUnsavedEdits)
+        {
+            QuickFixButton.ToolTip = "Click Save And Apply first, then run Quick Fix.";
+        }
+        else if (!currentUserCovered)
+        {
+            QuickFixButton.ToolTip = "Current user is not in enabled profiles, so Quick Fix is not applicable for this account.";
+        }
+        else
+        {
+            QuickFixButton.ToolTip = "Repair startup tasks, start listener for current user, and run setup check.";
+        }
+    }
+
+    private void UpdateRuntimeSummary()
+    {
+        try
+        {
+            var config = _configService.Load();
+            var currentUser = Environment.UserName;
+            var enabledProfiles = config.Profiles.Where(profile => profile.Enabled).ToList();
+            var requiredUsers = GetRequiredUsersFromEnabledProfiles(enabledProfiles);
+            var currentUserIncluded = requiredUsers.Any(user =>
+                user.Equals(currentUser, StringComparison.OrdinalIgnoreCase));
+            var activeHotkeys = currentUserIncluded
+                ? GetActiveHotkeysForUser(config, currentUser)
+                : Array.Empty<string>();
+            var listenerRunning = IsListenerMutexPresentForUser(currentUser);
+
+            var taskStateText = "not applicable";
+            if (currentUserIncluded)
+            {
+                var expectedTask = _taskSchedulerService.GetTaskNameForUser(currentUser);
+                var taskNames = _taskSchedulerService.GetManagedTaskNamesForDiagnostics();
+                taskStateText = taskNames.Any(task =>
+                    task.Equals(expectedTask, StringComparison.OrdinalIgnoreCase))
+                    ? "present"
+                    : "missing";
+            }
+
+            var coverageText = enabledProfiles.Count == 0
+                ? "No enabled profiles saved."
+                : currentUserIncluded
+                    ? activeHotkeys.Count == 0
+                        ? $"Current user '{currentUser}' has no valid active hotkeys."
+                        : $"Current user '{currentUser}' has {activeHotkeys.Count} active hotkey(s)."
+                    : $"Current user '{currentUser}' is not in enabled saved profiles.";
+
+            RuntimeSummaryText.Text = $"{coverageText} Listener: {(listenerRunning ? "running" : "not running")}. Startup task: {taskStateText}.";
+        }
+        catch (Exception exception)
+        {
+            RuntimeSummaryText.Text = "Runtime summary unavailable: " + exception.Message;
+        }
     }
 
     private void UpdateDirtyUiState()

@@ -144,11 +144,13 @@ Use the built-in buttons in the main window:
 - `Quick Fix Current User` (repairs startup tasks, starts listener for current user, then runs setup check)
 - `Start Listener For Current User` (starts listener mode immediately for the signed-in account so you can test without signing out)
 - `Check Setup` (flags missing credentials, invalid/duplicate enabled profiles, missing startup tasks per enabled user, stale old tasks, and missing active routes)
+- `Refresh Runtime Status` (refreshes live current-user coverage + listener/task summary text at the bottom)
 - `Copy Diagnostics` (copies profile/task summary plus recent log tails to clipboard)
 - `Save Diagnostics To File` (writes a timestamped diagnostics text file into `C:\ProgramData\InstantLoginSwitcher`)
 
 `Quick Fix Current User` is disabled until you save edits and have at least one enabled profile.
 `Start Listener For Current User` is disabled when no enabled profiles exist.
+Quick Fix is also disabled when the signed-in user is not in any enabled profile in the current view.
 
 `Start Listener For Current User` now waits briefly for startup confirmation in `listener.log` and warns if confirmation is not detected.
 Listener startup confirmation now checks newly written log content, reducing stale false positives from older log entries.
@@ -160,6 +162,7 @@ Listener startup confirmation now checks newly written log content, reducing sta
 
 Runtime files are in `C:\ProgramData\InstantLoginSwitcher`.
 On smaller windows, the action button row is horizontally scrollable.
+The bottom runtime summary line shows current-user coverage, listener state, and startup-task presence.
 Diagnostics now include validation issues such as invalid hotkeys or missing stored passwords.
 Diagnostics also report the expected startup task name for the current user and whether it exists.
 Diagnostics now include `ExpectedTasksByUser` and `UnexpectedStartupTasks` sections for faster task troubleshooting.

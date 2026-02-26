@@ -91,6 +91,7 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
             <ScrollViewer Grid.Row="0"
@@ -113,6 +114,7 @@
                     <Button Height="34" MinWidth="150" Margin="0,0,8,0" Content="Open Listener Log" Click="OpenListenerLog_Click" />
                     <Button Height="34" MinWidth="150" Margin="0,0,8,0" Content="Open Switch Log" Click="OpenSwitchLog_Click" />
                     <Button Height="34" MinWidth="140" Margin="0,0,8,0" Content="Check Setup" Click="CheckSetup_Click" />
+                    <Button Height="34" MinWidth="180" Margin="0,0,8,0" Content="Refresh Runtime Status" Click="RefreshRuntimeStatus_Click" />
                     <Button Height="34" MinWidth="210" Margin="0,0,8,0" Content="Copy Diagnostics" Click="CopyDiagnostics_Click" />
                     <Button Height="34" MinWidth="220" Margin="0,0,8,0" Content="Save Diagnostics To File" Click="SaveDiagnosticsToFile_Click" />
                     <Button Height="34" MinWidth="210" Margin="0,0,8,0" Content="Remove All Startup Tasks" Click="RemoveAllTasks_Click" />
@@ -125,6 +127,11 @@
                        TextWrapping="Wrap"
                        Foreground="#FF2A4E6E"
                        FontWeight="SemiBold" />
+            <TextBlock x:Name="RuntimeSummaryText"
+                       Grid.Row="2"
+                       Margin="0,6,0,0"
+                       TextWrapping="Wrap"
+                       Foreground="#FF475569" />
         </Grid>
     </Grid>
 </Window>
