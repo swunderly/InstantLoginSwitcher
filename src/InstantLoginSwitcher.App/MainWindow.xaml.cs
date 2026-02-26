@@ -981,6 +981,11 @@ public partial class MainWindow : Window
         OpenPath(InstallPaths.RootDirectory, isLogFile: false);
     }
 
+    private void OpenConfigFile_Click(object sender, RoutedEventArgs e)
+    {
+        OpenPath(InstallPaths.ConfigPath, isLogFile: true);
+    }
+
     private void OpenListenerLog_Click(object sender, RoutedEventArgs e)
     {
         OpenPath(InstallPaths.ListenerLogPath, isLogFile: true);
@@ -1076,9 +1081,10 @@ public partial class MainWindow : Window
             if (isLogFile && !File.Exists(path))
             {
                 var folder = Path.GetDirectoryName(path) ?? InstallPaths.RootDirectory;
+                var missingFileName = Path.GetFileName(path);
                 MessageBox.Show(
                     this,
-                    $"The log file does not exist yet.\n\nLocation: {path}\n\nThe data folder will open instead.",
+                    $"The file does not exist yet ({missingFileName}).\n\nLocation: {path}\n\nThe data folder will open instead.",
                     "InstantLoginSwitcher",
                     MessageBoxButton.OK,
                     MessageBoxImage.Information);
@@ -1112,7 +1118,18 @@ public partial class MainWindow : Window
     {
         InstallPaths.EnsureRootDirectory();
 
-        var config = _configService.Load();
+        var diagnosticsErrors = new List<string>();
+        SwitcherConfig config;
+        try
+        {
+            config = _configService.Load();
+        }
+        catch (Exception exception)
+        {
+            diagnosticsErrors.Add("Config load failed: " + exception.Message);
+            config = new SwitcherConfig();
+        }
+
         var enabledProfiles = config.Profiles.Where(profile => profile.Enabled).ToList();
         var requiredUsers = enabledProfiles
             .SelectMany(profile => new[] { profile.UserA, profile.UserB })
@@ -1121,10 +1138,20 @@ public partial class MainWindow : Window
             .OrderBy(user => user, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        var startupTasks = _taskSchedulerService
-            .GetManagedTaskNamesForDiagnostics()
-            .OrderBy(task => task, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        List<string> startupTasks;
+        try
+        {
+            startupTasks = _taskSchedulerService
+                .GetManagedTaskNamesForDiagnostics()
+                .OrderBy(task => task, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+        catch (Exception exception)
+        {
+            diagnosticsErrors.Add("Startup task query failed: " + exception.Message);
+            startupTasks = new List<string>();
+        }
+
         string expectedCurrentUserTask;
         try
         {
@@ -1132,6 +1159,7 @@ public partial class MainWindow : Window
         }
         catch (Exception exception)
         {
+            diagnosticsErrors.Add("Expected current-user task name failed: " + exception.Message);
             expectedCurrentUserTask = "(unavailable: " + exception.Message + ")";
         }
 
@@ -1156,8 +1184,19 @@ public partial class MainWindow : Window
         builder.AppendLine($"ExpectedCurrentUserTask: {expectedCurrentUserTask}");
         builder.AppendLine($"ExpectedCurrentUserTaskPresent: {hasCurrentUserTask}");
 
-        var validationIssues = GetConfigValidationIssues(config);
+        IReadOnlyList<string> validationIssues;
+        try
+        {
+            validationIssues = GetConfigValidationIssues(config);
+        }
+        catch (Exception exception)
+        {
+            diagnosticsErrors.Add("Validation scan failed: " + exception.Message);
+            validationIssues = Array.Empty<string>();
+        }
+
         builder.AppendLine($"ValidationIssues: {validationIssues.Count}");
+        builder.AppendLine($"DiagnosticsErrors: {diagnosticsErrors.Count}");
 
         builder.AppendLine("EnabledProfiles:");
         if (enabledProfiles.Count == 0)
@@ -1193,6 +1232,19 @@ public partial class MainWindow : Window
         else
         {
             foreach (var issue in validationIssues)
+            {
+                builder.AppendLine("  - " + issue);
+            }
+        }
+
+        builder.AppendLine("DiagnosticsErrorDetails:");
+        if (diagnosticsErrors.Count == 0)
+        {
+            builder.AppendLine("  (none)");
+        }
+        else
+        {
+            foreach (var issue in diagnosticsErrors)
             {
                 builder.AppendLine("  - " + issue);
             }
