@@ -502,6 +502,7 @@ public partial class MainWindow : Window
 
             var requiredUsers = GetRequiredUsersFromEnabledProfiles(enabledProfiles);
             var currentUser = Environment.UserName;
+            var listenerAlreadyRunning = IsListenerMutexPresentForUser(currentUser);
             if (!requiredUsers.Any(user => user.Equals(currentUser, StringComparison.OrdinalIgnoreCase)))
             {
                 var decision = MessageBox.Show(
@@ -514,6 +515,18 @@ public partial class MainWindow : Window
                 {
                     return;
                 }
+            }
+
+            if (listenerAlreadyRunning)
+            {
+                SetStatus("Listener already appears to be running for current user.");
+                MessageBox.Show(
+                    this,
+                    "Listener already appears to be running for the current user.\n\nTest hotkeys now. If they still do nothing, run Check Setup.",
+                    "InstantLoginSwitcher",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
             }
 
             var currentExecutable = Process.GetCurrentProcess().MainModule?.FileName;
@@ -541,6 +554,16 @@ public partial class MainWindow : Window
                 MessageBox.Show(
                     this,
                     "Listener startup confirmed.\n\nIf hotkeys still do nothing, run Check Setup or Save Diagnostics To File.",
+                    "InstantLoginSwitcher",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+            else if (IsListenerMutexPresentForUser(currentUser))
+            {
+                SetStatus("Listener appears to be running, but log confirmation was delayed.");
+                MessageBox.Show(
+                    this,
+                    "Listener appears to be running, but startup log confirmation was delayed.\n\nTest hotkeys now.",
                     "InstantLoginSwitcher",
                     MessageBoxButton.OK,
                     MessageBoxImage.Information);
@@ -1182,6 +1205,10 @@ public partial class MainWindow : Window
             {
                 warnings.Add("Current signed-in user is not in any enabled profile.");
             }
+            else if (currentUserIncluded && !IsListenerMutexPresentForUser(Environment.UserName))
+            {
+                warnings.Add("Current user's listener process does not appear to be running right now.");
+            }
 
             try
             {
@@ -1276,6 +1303,11 @@ public partial class MainWindow : Window
             if (warnings.Any(warning => warning.Contains("Current user's startup listener task was not found.", StringComparison.OrdinalIgnoreCase)))
             {
                 builder.AppendLine("Tip: Click 'Start Listener For Current User' to test hotkeys immediately without signing out.");
+            }
+
+            if (warnings.Any(warning => warning.Contains("listener process does not appear to be running", StringComparison.OrdinalIgnoreCase)))
+            {
+                builder.AppendLine("Tip: Click 'Start Listener For Current User' and retest your hotkey.");
             }
 
             if (warnings.Any(warning => warning.Contains("Unsaved UI edits are present.", StringComparison.OrdinalIgnoreCase)))
@@ -1721,6 +1753,35 @@ public partial class MainWindow : Window
         }
     }
 
+    private static bool IsListenerMutexPresentForUser(string userName)
+    {
+        if (string.IsNullOrWhiteSpace(userName))
+        {
+            return false;
+        }
+
+        var mutexName = GetListenerMutexName(userName.Trim());
+        try
+        {
+            if (!Mutex.TryOpenExisting(mutexName, out var existingMutex))
+            {
+                return false;
+            }
+
+            existingMutex.Dispose();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string GetListenerMutexName(string userName)
+    {
+        return $@"Local\InstantLoginSwitcher.Listener.{userName}";
+    }
+
     private string BuildDiagnosticsSummary()
     {
         InstallPaths.EnsureRootDirectory();
@@ -1801,6 +1862,7 @@ public partial class MainWindow : Window
         builder.AppendLine($"CurrentUser: {Environment.UserName}");
         builder.AppendLine($"UiUnsavedProfileChanges: {_hasUnsavedChanges}");
         builder.AppendLine($"UiUnsavedDraftChanges: {_hasDraftChanges}");
+        builder.AppendLine($"CurrentUserListenerMutexPresent: {IsListenerMutexPresentForUser(Environment.UserName)}");
         builder.AppendLine($"{InstallPaths.RootOverrideEnvironmentVariable}: {Environment.GetEnvironmentVariable(InstallPaths.RootOverrideEnvironmentVariable) ?? "(not set)"}");
         builder.AppendLine($"DataFolder: {InstallPaths.RootDirectory}");
         builder.AppendLine($"ConfigPath: {InstallPaths.ConfigPath}");

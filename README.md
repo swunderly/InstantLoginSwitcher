@@ -145,6 +145,7 @@ Use the built-in buttons in the main window:
 
 `Start Listener For Current User` now waits briefly for startup confirmation in `listener.log` and warns if confirmation is not detected.
 `Check Setup` warns when unsaved UI edits are present because it validates the saved config on disk.
+`Check Setup` now also flags when the current user should have listener coverage but the listener process is not currently running.
 
 Runtime files are in `C:\ProgramData\InstantLoginSwitcher`.
 On smaller windows, the action button row is horizontally scrollable.
@@ -156,6 +157,7 @@ If clipboard copy fails, `Copy Diagnostics` now falls back to saving a diagnosti
 Diagnostics include an internal errors section if any data source (for example task query) fails.
 Diagnostics include config/backup file existence and last-write timestamps.
 Diagnostics include whether unsaved UI edits were present when the report was generated.
+Diagnostics include whether the current-user listener mutex is currently present.
 `Restore Backup Config` is enabled only when a backup file exists.
 
 If a hotkey appears to do nothing:
