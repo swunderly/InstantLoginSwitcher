@@ -80,7 +80,7 @@ Uninstall removes:
   - Check listener log:
     - `C:\ProgramData\InstantLoginSwitcher\listener.log`
     - Confirm lines like `Triggering switch for HK...` and `Inline PowerShell exit code ...`.
-    - Confirm startup lines like `Loaded combo HK... => ...` and no `Invalid key` warnings.
+    - Confirm startup lines like `Loaded combo HK... => ...` and `Listener started. combos=...`.
   - Check switch log:
     - `C:\ProgramData\InstantLoginSwitcher\switch.log`
 - Password validation fails:

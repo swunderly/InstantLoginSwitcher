@@ -855,38 +855,27 @@ commandMap := Map(
 $commandBlock
 )
 
-ValidateCombos()
+LogCombos()
+if (combos.Length = 0) {
+    WriteLog("No combos configured. Listener exiting.")
+    ExitApp
+}
 WriteLog("Listener started. combos=" . combos.Length)
 SetTimer(CheckCombos, 15)
 
-ValidateCombos() {
+LogCombos() {
     global combos
 
-    valid := Array()
     for combo in combos {
-        invalid := false
-        for keyName in combo["keys"] {
-            if (GetKeyVK(keyName) = 0) && (GetKeySC(keyName) = 0) {
-                WriteLog("Invalid key '" . keyName . "' for combo " . combo["id"] . "; skipping combo")
-                invalid := true
-                break
+        keyText := ""
+        for idx, keyName in combo["keys"] {
+            if (idx > 1) {
+                keyText .= "+"
             }
+            keyText .= keyName
         }
-
-        if !invalid {
-            keyText := ""
-            for idx, keyName in combo["keys"] {
-                if (idx > 1) {
-                    keyText .= "+"
-                }
-                keyText .= keyName
-            }
-            WriteLog("Loaded combo " . combo["id"] . " => " . keyText)
-            valid.Push(combo)
-        }
+        WriteLog("Loaded combo " . combo["id"] . " => " . keyText)
     }
-
-    combos := valid
 }
 
 CheckCombos(*) {
