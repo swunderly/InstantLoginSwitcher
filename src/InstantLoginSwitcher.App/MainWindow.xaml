@@ -1,0 +1,92 @@
+<Window x:Class="InstantLoginSwitcher.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="InstantLoginSwitcher"
+        Height="760"
+        Width="1120"
+        MinHeight="700"
+        MinWidth="980"
+        WindowStartupLocation="CenterScreen">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Padding="14" Background="#FFF4F7FB" CornerRadius="8" BorderBrush="#FFC9D6E8" BorderThickness="1">
+            <StackPanel>
+                <TextBlock FontSize="17" FontWeight="SemiBold" Text="Hotkey-Based User Switching" />
+                <TextBlock Margin="0,6,0,0" TextWrapping="Wrap">
+                    Create one or more profiles that link two local administrator accounts to one hotkey. Removing a profile removes its hotkey behavior without uninstalling the app.
+                </TextBlock>
+                <TextBlock x:Name="AccountsSummaryText" Margin="0,10,0,0" FontWeight="SemiBold" />
+            </StackPanel>
+        </Border>
+
+        <GroupBox Grid.Row="1" Header="Create Or Edit Profile" Margin="0,12,0,12" Padding="12">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="1.2*" />
+                    <ColumnDefinition Width="1.2*" />
+                    <ColumnDefinition Width="1.4*" />
+                    <ColumnDefinition Width="1.2*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0" Grid.Column="0" Margin="0,0,8,6" Text="First User" FontWeight="SemiBold" />
+                <TextBlock Grid.Row="0" Grid.Column="1" Margin="0,0,8,6" Text="Second User" FontWeight="SemiBold" />
+                <TextBlock Grid.Row="0" Grid.Column="2" Margin="0,0,8,6" Text="Hotkey (example: Ctrl+Alt+S)" FontWeight="SemiBold" />
+                <TextBlock Grid.Row="0" Grid.Column="3" Margin="0,0,8,6" Text="Profile Name (optional)" FontWeight="SemiBold" />
+
+                <ComboBox x:Name="UserACombo" Grid.Row="1" Grid.Column="0" Margin="0,0,8,0" MinHeight="30" />
+                <ComboBox x:Name="UserBCombo" Grid.Row="1" Grid.Column="1" Margin="0,0,8,0" MinHeight="30" />
+                <TextBox x:Name="HotkeyBox" Grid.Row="1" Grid.Column="2" Margin="0,0,8,0" MinHeight="30" VerticalContentAlignment="Center" />
+                <TextBox x:Name="ProfileNameBox" Grid.Row="1" Grid.Column="3" Margin="0,0,8,0" MinHeight="30" VerticalContentAlignment="Center" />
+
+                <StackPanel Grid.Row="1" Grid.Column="4" Orientation="Vertical" HorizontalAlignment="Right">
+                    <CheckBox x:Name="EnabledCheck" IsChecked="True" Margin="0,0,0,8" Content="Enabled" />
+                    <Button x:Name="AddOrUpdateButton" MinWidth="180" Height="30" Content="Add Profile" Click="AddOrUpdateProfile_Click" />
+                </StackPanel>
+            </Grid>
+        </GroupBox>
+
+        <GroupBox Grid.Row="2" Header="Configured Hotkey Profiles" Padding="8">
+            <DataGrid x:Name="ProfilesGrid"
+                      AutoGenerateColumns="False"
+                      SelectionMode="Single"
+                      SelectionChanged="ProfilesGrid_SelectionChanged"
+                      IsReadOnly="True"
+                      CanUserAddRows="False"
+                      CanUserDeleteRows="False"
+                      HeadersVisibility="Column"
+                      RowHeight="32">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="1.0*" />
+                    <DataGridTextColumn Header="First User" Binding="{Binding UserA}" Width="1.0*" />
+                    <DataGridTextColumn Header="Second User" Binding="{Binding UserB}" Width="1.0*" />
+                    <DataGridTextColumn Header="Hotkey" Binding="{Binding Hotkey}" Width="1.1*" />
+                    <DataGridCheckBoxColumn Header="Enabled" Binding="{Binding Enabled}" Width="100" />
+                    <DataGridTextColumn Header="Profile Id" Binding="{Binding Id}" Width="1.3*" />
+                </DataGrid.Columns>
+            </DataGrid>
+        </GroupBox>
+
+        <DockPanel Grid.Row="3" Margin="0,12,0,0" LastChildFill="True">
+            <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
+                <Button Height="34" MinWidth="160" Margin="0,0,8,0" Content="Save And Apply" Click="SaveAndApply_Click" />
+                <Button Height="34" MinWidth="170" Margin="0,0,8,0" Content="Remove Selected Hotkey" Click="RemoveSelectedProfile_Click" />
+                <Button Height="34" MinWidth="240" Margin="0,0,8,0" Content="Update Passwords For Selected Profile" Click="UpdatePasswordsForSelectedProfile_Click" />
+                <Button Height="34" MinWidth="130" Margin="0,0,8,0" Content="Clear Form" Click="ClearForm_Click" />
+                <Button Height="34" MinWidth="100" Margin="0,0,8,0" Content="Reload" Click="Reload_Click" />
+                <Button Height="34" MinWidth="210" Margin="0,0,8,0" Content="Remove All Startup Tasks" Click="RemoveAllTasks_Click" />
+            </StackPanel>
+            <TextBlock x:Name="StatusText" VerticalAlignment="Center" TextWrapping="Wrap" Foreground="#FF2A4E6E" FontWeight="SemiBold" />
+        </DockPanel>
+    </Grid>
+</Window>

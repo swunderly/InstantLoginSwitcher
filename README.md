@@ -1,91 +1,99 @@
-# InstantLoginSwitcher
+# InstantLoginSwitcher (Visual Studio App)
 
-Configurable hotkey-based local user switching for Windows 11.
+InstantLoginSwitcher is now a native Windows 11 application built for Visual Studio (.NET 8 WPF).
+It provides hotkey-based switching between local administrator accounts.
 
-## What it does
+When a configured hotkey is pressed:
+1. The app prepares auto sign-in for the target user.
+2. The current user is logged off.
+3. Windows signs in the selected target user.
 
-- Lets you configure one or more switch profiles.
-- Each profile links two local administrator accounts to one hotkey.
-- Pressing the hotkey prepares auto sign-in for the other user and logs off the current user.
-- If a hotkey can switch you to multiple users, a chooser window appears.
-
-This is a forced sign-out plus automatic sign-in flow.
+This is a forced logoff + automatic sign-in workflow.
 It is not native Fast User Switching.
+
+## Project Layout
+
+- `InstantLoginSwitcher.sln`
+- `src/InstantLoginSwitcher.Core` (config, security, switching, task setup, hotkey parser)
+- `src/InstantLoginSwitcher.App` (WPF settings UI + background listener mode)
 
 ## Requirements
 
 - Windows 11
-- AutoHotkey v2 installed
-- Run installer/uninstaller as local Administrator
-- Local accounts used for switching must be enabled and in local `Administrators`
+- Visual Studio 2022 (17.8+ recommended)
+- .NET 8 SDK + desktop workload
+- Local accounts used by profiles must be enabled and in local `Administrators`
 
-## Install
+## Open In Visual Studio
 
-1. Download the repository ZIP from GitHub.
-2. Unzip anywhere.
-3. Install AutoHotkey v2 (if needed).
-4. Right-click `Install-InstantLoginSwitcher.cmd` and choose **Run as administrator**.
-5. In the installer prompts:
-   - choose how many profiles to create,
-   - choose the two users for each profile (skipped automatically when exactly two local admin users exist),
-   - choose a hotkey for each profile,
-   - enter each selected account password when prompted.
-6. Sign out and sign back in once.
-7. Test your configured hotkeys.
+1. Open `InstantLoginSwitcher.sln`.
+2. Set startup project to `InstantLoginSwitcher.App`.
+3. Build and run.
 
-## Hotkey format
+The app manifest requires administrator rights, so Windows will show UAC.
 
-Use plus-separated keys, for example:
+## How To Configure
 
-- `Numpad4+Numpad5+Numpad6`
-- `Ctrl+Alt+S`
-- `Shift+F12`
+1. Launch `InstantLoginSwitcher.App`.
+2. Add one or more profiles:
+   - `First User`
+   - `Second User`
+   - `Hotkey` (example `Ctrl+Alt+S`)
+3. Click `Add Profile`.
+4. Repeat for additional user pairs/hotkeys.
+5. Click `Save And Apply`.
 
-Rules:
+During save, the app prompts for missing account passwords and validates them.
 
-- 2 to 4 keys per hotkey
-- no duplicate keys inside one hotkey
-- at least one key must be a non-modifier key
+## Three Users Example
 
-## Uninstall
+If you have users `Alice`, `Bob`, and `Carol`, create multiple profiles:
 
-1. Right-click `Uninstall-InstantLoginSwitcher.cmd` and choose **Run as administrator**.
+- `Alice <-> Bob` on `Ctrl+Alt+1`
+- `Alice <-> Carol` on `Ctrl+Alt+2`
+- `Bob <-> Carol` on `Ctrl+Alt+3` (optional)
 
-Uninstall removes:
+## Remove A Hotkey (No Uninstall Needed)
 
-- scheduled tasks named `InstantLoginSwitcher-Hotkey-*`
-- runtime files in `C:\ProgramData\InstantLoginSwitcher`
-- auto-logon registry values set by this tool
+1. Select the profile in `Configured Hotkey Profiles`.
+2. Click `Remove Selected Hotkey`.
+3. Click `Save And Apply`.
 
-## Runtime files
+This removes only that profile/hotkey mapping.
 
-- `C:\ProgramData\InstantLoginSwitcher\config.json`
-- `C:\ProgramData\InstantLoginSwitcher\InstantLoginSwitcher.ahk`
-- `C:\ProgramData\InstantLoginSwitcher\commands\*.ps1`
+## Update Passwords Without Recreating Profiles
+
+If a Windows account password changes:
+
+1. Select a profile that includes that user.
+2. Click `Update Passwords For Selected Profile`.
+3. Re-enter passwords for the users in that profile.
+4. Click `Save And Apply`.
+
+## Multi-Target Chooser UI
+
+If one hotkey maps to multiple valid targets for the current user, the app shows a chooser window so the user can pick the target account.
+
+## Startup Behavior
+
+`Save And Apply` automatically updates per-user startup tasks so listener mode starts at logon.
+
+Listener mode runs the same executable with:
+
+- `--listener`
+
+## Logs
+
+Runtime logs:
+
 - `C:\ProgramData\InstantLoginSwitcher\listener.log`
 - `C:\ProgramData\InstantLoginSwitcher\switch.log`
+- `C:\ProgramData\InstantLoginSwitcher\config.json`
 
-## Troubleshooting
+## Security
 
-- Installer/uninstaller window closes immediately:
-  - Run via right-click -> **Run as administrator**.
-  - Check logs:
-    - `%TEMP%\InstantLoginSwitcher-install.log`
-    - `%TEMP%\InstantLoginSwitcher-uninstall.log`
-- Hotkey does nothing:
-  - Confirm tasks exist:
-    - `schtasks /Query /FO LIST | findstr /I "InstantLoginSwitcher-Hotkey"`
-  - Confirm AutoHotkey v2 is installed (v1 is not supported).
-  - If using numpad keys, test with NumLock both on and off.
-  - Check listener log:
-    - `C:\ProgramData\InstantLoginSwitcher\listener.log`
-    - Confirm lines like `Triggering switch for HK...` and `Inline PowerShell exit code ...`.
-    - Confirm startup lines like `Loaded combo HK... => ...` and `Listener started. combos=...`.
-  - Check switch log:
-    - `C:\ProgramData\InstantLoginSwitcher\switch.log`
-- Password validation fails:
-  - Use the Windows account password, not PIN.
+Passwords are encrypted with DPAPI (machine scope) before storage in `config.json`.
 
-## Security note
+## Legacy Scripts
 
-Configured account passwords are stored in reversible format under `C:\ProgramData\InstantLoginSwitcher\config.json` so the switch action can run non-interactively. Only install on systems you trust and keep local admin access restricted.
+The older script-based installer files still exist in this repository, but the Visual Studio application is the primary supported path moving forward.
