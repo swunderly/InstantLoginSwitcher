@@ -185,7 +185,12 @@ public sealed class ListenerRuntime : IDisposable
         try
         {
             var currentUser = Environment.UserName;
-            var config = _config;
+            SwitcherConfig config;
+            lock (_stateLock)
+            {
+                config = _config;
+            }
+
             var targets = _targetResolver.ResolveTargets(config, hotkeyCanonical, currentUser);
             if (targets.Count == 0)
             {
