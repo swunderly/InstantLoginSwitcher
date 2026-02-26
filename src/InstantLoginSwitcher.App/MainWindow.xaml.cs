@@ -16,6 +16,7 @@ public partial class MainWindow : Window
     private readonly PasswordProtector _passwordProtector;
     private readonly CredentialValidator _credentialValidator;
     private readonly LocalAccountService _localAccountService;
+    private readonly AccountPictureService _accountPictureService;
     private readonly TaskSchedulerService _taskSchedulerService;
     private readonly SwitchExecutor _switchExecutor;
 
@@ -30,6 +31,7 @@ public partial class MainWindow : Window
         PasswordProtector passwordProtector,
         CredentialValidator credentialValidator,
         LocalAccountService localAccountService,
+        AccountPictureService accountPictureService,
         TaskSchedulerService taskSchedulerService,
         SwitchExecutor switchExecutor)
     {
@@ -38,6 +40,7 @@ public partial class MainWindow : Window
         _passwordProtector = passwordProtector;
         _credentialValidator = credentialValidator;
         _localAccountService = localAccountService;
+        _accountPictureService = accountPictureService;
         _taskSchedulerService = taskSchedulerService;
         _switchExecutor = switchExecutor;
 
@@ -451,7 +454,7 @@ public partial class MainWindow : Window
             Qualified = account.Qualified,
             SidValue = account.SidValue,
             PasswordEncrypted = _passwordProtector.Protect(password),
-            PicturePath = string.Empty
+            PicturePath = _accountPictureService.GetPicturePath(account)
         };
     }
 

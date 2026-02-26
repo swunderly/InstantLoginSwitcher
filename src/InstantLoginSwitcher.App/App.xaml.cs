@@ -14,6 +14,7 @@ public partial class App : Application
     private readonly PasswordProtector _passwordProtector = new();
     private readonly CredentialValidator _credentialValidator = new();
     private readonly LocalAccountService _localAccountService = new();
+    private readonly AccountPictureService _accountPictureService = new();
     private readonly TaskSchedulerService _taskSchedulerService = new();
 
     private void OnStartup(object sender, StartupEventArgs eventArgs)
@@ -34,6 +35,7 @@ public partial class App : Application
             _passwordProtector,
             _credentialValidator,
             _localAccountService,
+            _accountPictureService,
             _taskSchedulerService,
             new SwitchExecutor(_passwordProtector));
 
