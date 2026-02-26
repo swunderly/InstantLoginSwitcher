@@ -720,6 +720,7 @@ public partial class MainWindow : Window
 
     private void ProfileInputSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        TryAutoFillOppositeUser(sender);
         MarkDraftChange();
     }
 
@@ -731,6 +732,78 @@ public partial class MainWindow : Window
     private void ProfileInputCheckedChanged(object sender, RoutedEventArgs e)
     {
         MarkDraftChange();
+    }
+
+    private void TryAutoFillOppositeUser(object sender)
+    {
+        if (_dirtyTrackingSuspendDepth > 0)
+        {
+            return;
+        }
+
+        if (sender == UserACombo &&
+            UserACombo.SelectedItem is AccountOption first &&
+            UserBCombo.SelectedItem is null)
+        {
+            var candidate = _accountOptions.FirstOrDefault(option =>
+                !option.Account.UserName.Equals(first.Account.UserName, StringComparison.OrdinalIgnoreCase));
+            if (candidate is null)
+            {
+                return;
+            }
+
+            RunWithoutDirtyTracking(() =>
+            {
+                UserBCombo.SelectedItem = candidate;
+            });
+            return;
+        }
+
+        if (sender == UserBCombo &&
+            UserBCombo.SelectedItem is AccountOption second &&
+            UserACombo.SelectedItem is null)
+        {
+            var candidate = _accountOptions.FirstOrDefault(option =>
+                !option.Account.UserName.Equals(second.Account.UserName, StringComparison.OrdinalIgnoreCase));
+            if (candidate is null)
+            {
+                return;
+            }
+
+            RunWithoutDirtyTracking(() =>
+            {
+                UserACombo.SelectedItem = candidate;
+            });
+        }
+    }
+
+    private void HotkeyBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        var raw = HotkeyBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return;
+        }
+
+        try
+        {
+            var parsed = _hotkeyParser.Parse(raw);
+            if (string.Equals(parsed.CanonicalText, raw, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            RunWithoutDirtyTracking(() =>
+            {
+                HotkeyBox.Text = parsed.CanonicalText;
+            });
+            MarkDraftChange();
+            UpdateFormValidationState();
+        }
+        catch
+        {
+            // Validation message is already shown by live form validation.
+        }
     }
 
     private void MarkDraftChange()
