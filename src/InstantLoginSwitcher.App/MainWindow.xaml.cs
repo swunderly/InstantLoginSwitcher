@@ -668,7 +668,26 @@ public partial class MainWindow : Window
         {
             SaveAndApply_Click(sender, new RoutedEventArgs());
             e.Handled = true;
+            return;
         }
+
+        if (Keyboard.Modifiers == ModifierKeys.None &&
+            e.Key == Key.Enter &&
+            IsProfileInputFocused() &&
+            AddOrUpdateButton.IsEnabled)
+        {
+            AddOrUpdateProfile_Click(sender, new RoutedEventArgs());
+            e.Handled = true;
+        }
+    }
+
+    private bool IsProfileInputFocused()
+    {
+        return UserACombo.IsKeyboardFocusWithin ||
+               UserBCombo.IsKeyboardFocusWithin ||
+               HotkeyBox.IsKeyboardFocusWithin ||
+               ProfileNameBox.IsKeyboardFocusWithin ||
+               EnabledCheck.IsKeyboardFocusWithin;
     }
 
     private void ProfileInputSelectionChanged(object sender, SelectionChangedEventArgs e)

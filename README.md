@@ -50,6 +50,7 @@ Test project included:
 
 The profile form now validates as you type. The `Add Profile`/`Update Profile` button stays disabled until the current form input is valid.
 Tip: press `Ctrl+S` in the app to run `Save And Apply`.
+Tip: press `Enter` while focused in profile inputs to run `Add Profile`/`Update Profile` when the form is valid.
 
 During save, the app prompts for missing account passwords and validates them.
 If no enabled profiles remain, save will remove startup tasks and clear auto-logon values.

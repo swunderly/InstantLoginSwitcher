@@ -22,6 +22,8 @@ public sealed class ListenerRuntime : IDisposable
     private List<ListenerHotkeyBinding> _bindings = new();
     private SwitcherConfig _config = new();
     private int _switchInProgress;
+    private readonly object _reloadDebounceLock = new();
+    private CancellationTokenSource? _reloadDebounceSource;
 
     public ListenerRuntime(
         ConfigService configService,
@@ -49,6 +51,13 @@ public sealed class ListenerRuntime : IDisposable
 
     public void Dispose()
     {
+        lock (_reloadDebounceLock)
+        {
+            _reloadDebounceSource?.Cancel();
+            _reloadDebounceSource?.Dispose();
+            _reloadDebounceSource = null;
+        }
+
         if (_configWatcher is not null)
         {
             _configWatcher.Changed -= OnConfigFileChanged;
@@ -84,8 +93,36 @@ public sealed class ListenerRuntime : IDisposable
 
     private void OnConfigFileChanged(object sender, FileSystemEventArgs eventArgs)
     {
+        CancellationTokenSource nextTokenSource;
+        lock (_reloadDebounceLock)
+        {
+            _reloadDebounceSource?.Cancel();
+            _reloadDebounceSource?.Dispose();
+            _reloadDebounceSource = new CancellationTokenSource();
+            nextTokenSource = _reloadDebounceSource;
+        }
+
+        _ = DebouncedReloadAsync(nextTokenSource.Token);
+    }
+
+    private async Task DebouncedReloadAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(300), cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
         Application.Current.Dispatcher.BeginInvoke(() =>
         {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
             try
             {
                 ReloadConfig();
