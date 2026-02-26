@@ -166,6 +166,11 @@ Runtime logs:
 - `C:\ProgramData\InstantLoginSwitcher\config.json`
 - `C:\ProgramData\InstantLoginSwitcher\config.backup.json` (automatic recovery backup)
 
+Advanced override:
+
+- Set environment variable `INSTANT_LOGIN_SWITCHER_ROOT` to relocate the data/log folder.
+- Diagnostics output includes the effective override value.
+
 ## Security
 
 Passwords are encrypted with DPAPI (machine scope) before storage in `config.json`.

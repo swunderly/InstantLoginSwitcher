@@ -4,9 +4,30 @@ namespace InstantLoginSwitcher.Core.Services;
 
 public static class InstallPaths
 {
-    public static string RootDirectory => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-        "InstantLoginSwitcher");
+    public const string RootOverrideEnvironmentVariable = "INSTANT_LOGIN_SWITCHER_ROOT";
+
+    public static string RootDirectory
+    {
+        get
+        {
+            var overridePath = Environment.GetEnvironmentVariable(RootOverrideEnvironmentVariable);
+            if (!string.IsNullOrWhiteSpace(overridePath))
+            {
+                try
+                {
+                    return Path.GetFullPath(overridePath.Trim());
+                }
+                catch
+                {
+                    // Fall back to default path when override is invalid.
+                }
+            }
+
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                "InstantLoginSwitcher");
+        }
+    }
 
     public static string ConfigPath => Path.Combine(RootDirectory, "config.json");
     public static string ConfigBackupPath => Path.Combine(RootDirectory, "config.backup.json");

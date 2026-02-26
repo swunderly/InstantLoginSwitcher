@@ -1115,6 +1115,7 @@ public partial class MainWindow : Window
         builder.AppendLine($"UTC: {DateTime.UtcNow:o}");
         builder.AppendLine($"Machine: {Environment.MachineName}");
         builder.AppendLine($"CurrentUser: {Environment.UserName}");
+        builder.AppendLine($"{InstallPaths.RootOverrideEnvironmentVariable}: {Environment.GetEnvironmentVariable(InstallPaths.RootOverrideEnvironmentVariable) ?? "(not set)"}");
         builder.AppendLine($"DataFolder: {InstallPaths.RootDirectory}");
         builder.AppendLine($"ConfigPath: {InstallPaths.ConfigPath}");
         builder.AppendLine($"ConfigBackupPath: {InstallPaths.ConfigBackupPath}");
