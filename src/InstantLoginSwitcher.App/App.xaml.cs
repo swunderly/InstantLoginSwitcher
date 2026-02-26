@@ -68,7 +68,7 @@ public partial class App : Application
         {
             _listenerMutex = new Mutex(
                 initiallyOwned: true,
-                name: @"Global\InstantLoginSwitcher.Listener",
+                name: $@"Local\InstantLoginSwitcher.Listener.{Environment.UserName}",
                 createdNew: out var isNewMutex);
 
             if (!isNewMutex)

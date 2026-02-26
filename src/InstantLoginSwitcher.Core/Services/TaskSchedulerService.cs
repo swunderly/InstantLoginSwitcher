@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace InstantLoginSwitcher.Core.Services;
@@ -60,7 +61,8 @@ public sealed class TaskSchedulerService
 
     public string GetTaskNameForUser(string userName)
     {
-        var sanitized = new string(userName
+        var normalized = userName.Trim();
+        var sanitized = new string(normalized
             .Trim()
             .Select(ch => char.IsLetterOrDigit(ch) || ch == '-' ? ch : '_')
             .ToArray());
@@ -70,7 +72,8 @@ public sealed class TaskSchedulerService
             throw new InvalidOperationException("User name cannot be blank when creating a task name.");
         }
 
-        return TaskPrefix + sanitized;
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(normalized)))[..8];
+        return $"{TaskPrefix}{sanitized}_{hash}";
     }
 
     private void CreateOrUpdateTask(string userName, string listenerExecutablePath)

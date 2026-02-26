@@ -49,6 +49,8 @@ Test project included:
 5. Click `Save And Apply`.
 
 During save, the app prompts for missing account passwords and validates them.
+If no enabled profiles remain, save will remove startup tasks and clear auto-logon values.
+The form defaults to `Numpad4+Numpad6` when you clear or reset profile input.
 
 Hotkey rules:
 
@@ -82,6 +84,10 @@ If a Windows account password changes:
 3. Re-enter passwords for the users in that profile.
 4. Click `Save And Apply`.
 
+## Unsaved Changes Protection
+
+If you close the app with unsaved profile edits, the app now prompts before closing.
+
 ## Multi-Target Chooser UI
 
 If one hotkey maps to multiple valid targets for the current user, the app shows a chooser window so the user can pick the target account.
@@ -95,6 +101,7 @@ Listener mode runs the same executable with:
 - `--listener`
 
 If listener startup tasks become broken, use `Repair Startup Tasks` in the app.
+If there are no enabled profiles, repair will remove startup tasks and clear auto-logon values.
 
 ## Publish Build
 

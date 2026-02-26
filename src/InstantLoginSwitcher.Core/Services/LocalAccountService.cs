@@ -1,70 +1,26 @@
-using System.Collections;
-using System.DirectoryServices;
-using System.Globalization;
-using System.Reflection;
-using System.Security.Principal;
+using System.Management;
 using InstantLoginSwitcher.Core.Models;
 
 namespace InstantLoginSwitcher.Core.Services;
 
 public sealed class LocalAccountService
 {
-    private const int AccountDisableFlag = 0x0002;
+    private const string LocalAdministratorsSid = "S-1-5-32-544";
 
     public IReadOnlyList<LocalAdminAccount> GetEnabledLocalAdministrators()
     {
         var machine = Environment.MachineName;
-        var expectedPrefix = $"WinNT://{machine}/";
-        var result = new List<LocalAdminAccount>();
+        var result = new Dictionary<string, LocalAdminAccount>(StringComparer.OrdinalIgnoreCase);
 
-        using var administrators = new DirectoryEntry($"WinNT://{machine}/Administrators,group");
-        foreach (var memberObject in (IEnumerable)administrators.Invoke("Members"))
+        foreach (var groupPath in GetLocalAdministratorsGroupPaths())
         {
-            var memberPath = TryGetAdsPath(memberObject);
-            if (string.IsNullOrWhiteSpace(memberPath))
+            foreach (var account in GetGroupMembers(groupPath, machine))
             {
-                continue;
+                result[account.UserName] = account;
             }
-
-            using var member = new DirectoryEntry(memberPath);
-
-            if (!string.Equals(member.SchemaClassName, "User", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            if (!member.Path.StartsWith(expectedPrefix, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            var userName = ReadStringProperty(member, "Name");
-            if (string.IsNullOrWhiteSpace(userName))
-            {
-                continue;
-            }
-
-            if (IsDisabled(member))
-            {
-                continue;
-            }
-
-            var fullName = ReadStringProperty(member, "FullName");
-            if (string.IsNullOrWhiteSpace(fullName))
-            {
-                fullName = userName;
-            }
-
-            result.Add(new LocalAdminAccount
-            {
-                UserName = userName,
-                FullName = fullName,
-                Qualified = $"{machine}\\{userName}",
-                SidValue = ReadSid(member)
-            });
         }
 
-        return result
+        return result.Values
             .OrderBy(entry => entry.UserName, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
@@ -87,57 +43,106 @@ public sealed class LocalAccountService
             account.FullName.Equals(candidate, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static bool IsDisabled(DirectoryEntry member)
+    private static IReadOnlyList<string> GetLocalAdministratorsGroupPaths()
     {
-        var flags = member.Properties["UserFlags"]?.Value;
-        if (flags is null)
-        {
-            return false;
-        }
+        var query =
+            $"SELECT __RELPATH FROM Win32_Group WHERE LocalAccount = TRUE AND SID = '{LocalAdministratorsSid}'";
 
-        var value = Convert.ToInt32(flags, CultureInfo.InvariantCulture);
-        return (value & AccountDisableFlag) != 0;
-    }
-
-    private static string ReadStringProperty(DirectoryEntry entry, string propertyName)
-    {
-        var value = entry.Properties[propertyName]?.Value;
-        return value is null ? string.Empty : Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty;
-    }
-
-    private static string ReadSid(DirectoryEntry entry)
-    {
+        var paths = new List<string>();
         try
         {
-            if (entry.Properties["objectSid"]?.Value is byte[] sidBytes)
+            using var searcher = new ManagementObjectSearcher(query);
+            foreach (ManagementObject group in searcher.Get())
             {
-                return new SecurityIdentifier(sidBytes, 0).Value;
+                var relPath = ReadString(group, "__RELPATH");
+                if (!string.IsNullOrWhiteSpace(relPath))
+                {
+                    paths.Add(relPath);
+                }
             }
         }
         catch
         {
-            // SID is optional in UI context.
+            // If WMI fails we return empty and UI will explain no accounts found.
         }
 
-        return string.Empty;
+        return paths;
     }
 
-    private static string TryGetAdsPath(object memberObject)
+    private static IReadOnlyList<LocalAdminAccount> GetGroupMembers(string groupPath, string machine)
     {
+        var result = new List<LocalAdminAccount>();
+
+        var query = $"ASSOCIATORS OF {{{groupPath}}} WHERE AssocClass = Win32_GroupUser Role = GroupComponent";
         try
         {
-            var path = memberObject.GetType().InvokeMember(
-                "ADsPath",
-                BindingFlags.GetProperty,
-                binder: null,
-                target: memberObject,
-                args: null);
+            using var searcher = new ManagementObjectSearcher(query);
+            foreach (ManagementObject member in searcher.Get())
+            {
+                if (!member.ClassPath.ClassName.Equals("Win32_UserAccount", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
 
-            return path is null ? string.Empty : Convert.ToString(path, CultureInfo.InvariantCulture) ?? string.Empty;
+                if (!ReadBool(member, "LocalAccount"))
+                {
+                    continue;
+                }
+
+                if (ReadBool(member, "Disabled"))
+                {
+                    continue;
+                }
+
+                var userName = ReadString(member, "Name");
+                if (string.IsNullOrWhiteSpace(userName))
+                {
+                    continue;
+                }
+
+                var fullName = ReadString(member, "FullName");
+                if (string.IsNullOrWhiteSpace(fullName))
+                {
+                    fullName = userName;
+                }
+
+                var sidValue = ReadString(member, "SID");
+                result.Add(new LocalAdminAccount
+                {
+                    UserName = userName,
+                    FullName = fullName,
+                    Qualified = $"{machine}\\{userName}",
+                    SidValue = sidValue
+                });
+            }
         }
         catch
         {
-            return string.Empty;
+            // Ignore broken member enumeration and return best-effort results.
         }
+
+        return result;
+    }
+
+    private static string ReadString(ManagementBaseObject source, string propertyName)
+    {
+        var value = source[propertyName];
+        return value?.ToString() ?? string.Empty;
+    }
+
+    private static bool ReadBool(ManagementBaseObject source, string propertyName)
+    {
+        var value = source[propertyName];
+        if (value is bool boolValue)
+        {
+            return boolValue;
+        }
+
+        if (value is null)
+        {
+            return false;
+        }
+
+        return bool.TryParse(value.ToString(), out var parsed) && parsed;
     }
 }

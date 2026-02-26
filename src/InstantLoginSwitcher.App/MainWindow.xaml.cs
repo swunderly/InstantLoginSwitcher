@@ -24,6 +24,7 @@ public partial class MainWindow : Window
     private List<AccountOption> _accountOptions = new();
     private SwitcherConfig _loadedConfig = new();
     private Guid? _editingProfileId;
+    private bool _hasUnsavedChanges;
 
     public MainWindow(
         ConfigService configService,
@@ -45,6 +46,7 @@ public partial class MainWindow : Window
         _switchExecutor = switchExecutor;
 
         InitializeComponent();
+        Closing += MainWindow_Closing;
         ProfilesGrid.ItemsSource = _profiles;
 
         ReloadState();
@@ -87,6 +89,7 @@ public partial class MainWindow : Window
             }
 
             ClearFormInternal();
+            _hasUnsavedChanges = false;
             SetStatus("Configuration loaded.");
         }
         catch (Exception exception)
@@ -162,7 +165,8 @@ public partial class MainWindow : Window
             existing.Enabled = EnabledCheck.IsChecked ?? true;
 
             RefreshProfileGrid();
-            SetStatus("Profile updated.");
+            _hasUnsavedChanges = true;
+            SetStatus("Profile updated. Remember to click Save And Apply.");
         }
         else
         {
@@ -176,7 +180,8 @@ public partial class MainWindow : Window
                 Enabled = EnabledCheck.IsChecked ?? true
             });
 
-            SetStatus("Profile added.");
+            _hasUnsavedChanges = true;
+            SetStatus("Profile added. Remember to click Save And Apply.");
         }
 
         ClearFormInternal();
@@ -190,8 +195,20 @@ public partial class MainWindow : Window
             return;
         }
 
+        var decision = MessageBox.Show(
+            this,
+            $"Remove profile '{selected.Name}'?",
+            "InstantLoginSwitcher",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+        if (decision != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
         _profiles.Remove(selected);
         ClearFormInternal();
+        _hasUnsavedChanges = true;
         SetStatus("Profile removed. Click Save And Apply to persist.");
     }
 
@@ -255,14 +272,26 @@ public partial class MainWindow : Window
             }
 
             _taskSchedulerService.SyncListenerTasks(requiredUsers, currentExecutable);
-            _taskSchedulerService.StartListenerForUser(Environment.UserName);
+            if (requiredUsers.Count == 0)
+            {
+                _switchExecutor.DisableAutoLogon();
+            }
+            else
+            {
+                _taskSchedulerService.StartListenerForUser(Environment.UserName);
+            }
 
             _loadedConfig = configToSave;
-            SetStatus("Configuration saved and startup tasks updated.");
+            _hasUnsavedChanges = false;
+            SetStatus(requiredUsers.Count == 0
+                ? "Configuration saved. No profiles enabled, startup tasks removed."
+                : "Configuration saved and startup tasks updated.");
 
             MessageBox.Show(
                 this,
-                "Saved successfully. Hotkey profiles are now active for configured users.",
+                requiredUsers.Count == 0
+                    ? "Saved successfully. No active profiles remain, and startup tasks were removed."
+                    : "Saved successfully. Hotkey profiles are now active for configured users.",
                 "InstantLoginSwitcher",
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);
@@ -301,8 +330,16 @@ public partial class MainWindow : Window
             }
 
             _taskSchedulerService.SyncListenerTasks(requiredUsers, currentExecutable);
-            _taskSchedulerService.StartListenerForUser(Environment.UserName);
-            SetStatus("Startup tasks repaired for configured profiles.");
+            if (requiredUsers.Count == 0)
+            {
+                _switchExecutor.DisableAutoLogon();
+                SetStatus("No active profiles found. Startup tasks removed and auto-logon values cleared.");
+            }
+            else
+            {
+                _taskSchedulerService.StartListenerForUser(Environment.UserName);
+                SetStatus("Startup tasks repaired for configured profiles.");
+            }
         }
         catch (Exception exception)
         {
@@ -500,7 +537,7 @@ public partial class MainWindow : Window
         _editingProfileId = null;
         UserACombo.SelectedItem = null;
         UserBCombo.SelectedItem = null;
-        HotkeyBox.Text = string.Empty;
+        HotkeyBox.Text = "Numpad4+Numpad6";
         ProfileNameBox.Text = string.Empty;
         EnabledCheck.IsChecked = true;
         ProfilesGrid.SelectedItem = null;
@@ -520,6 +557,26 @@ public partial class MainWindow : Window
     private void SetStatus(string text)
     {
         StatusText.Text = text;
+    }
+
+    private void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
+    {
+        if (!_hasUnsavedChanges)
+        {
+            return;
+        }
+
+        var decision = MessageBox.Show(
+            this,
+            "You have unsaved profile changes. Close without saving?",
+            "InstantLoginSwitcher",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+
+        if (decision != MessageBoxResult.Yes)
+        {
+            e.Cancel = true;
+        }
     }
 
     private bool HasDuplicateProfile(string userA, string userB, string hotkey, Guid? excludedId)
