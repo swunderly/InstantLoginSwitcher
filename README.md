@@ -143,6 +143,7 @@ Diagnostics now include validation issues such as invalid hotkeys or missing sto
 Diagnostics also report the expected startup task name for the current user and whether it exists.
 Diagnostics include an internal errors section if any data source (for example task query) fails.
 Diagnostics include config/backup file existence and last-write timestamps.
+`Restore Backup Config` is enabled only when a backup file exists.
 
 If a hotkey appears to do nothing:
 

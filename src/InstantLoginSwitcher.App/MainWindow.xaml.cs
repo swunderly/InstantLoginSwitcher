@@ -59,6 +59,7 @@ public partial class MainWindow : Window
         ProfilesGrid.ItemsSource = _profiles;
         UpdateSelectionActionState();
         UpdateFormValidationState();
+        UpdateFileActionState();
 
         ReloadState();
     }
@@ -112,6 +113,7 @@ public partial class MainWindow : Window
             UpdateDirtyUiState();
             UpdateFormValidationState();
             UpdateSelectionActionState();
+            UpdateFileActionState();
             SetStatus("Configuration loaded.");
         }
         catch (Exception exception)
@@ -333,6 +335,7 @@ public partial class MainWindow : Window
             _hasUnsavedChanges = false;
             _hasDraftChanges = false;
             UpdateDirtyUiState();
+            UpdateFileActionState();
 
             var saveStatus = requiredUsers.Count == 0
                 ? "Configuration saved. No profiles enabled, startup tasks removed."
@@ -360,6 +363,7 @@ public partial class MainWindow : Window
                 _hasUnsavedChanges = false;
                 _hasDraftChanges = false;
                 UpdateDirtyUiState();
+                UpdateFileActionState();
                 SetStatus("Configuration saved, but startup task update failed. Use Repair Startup Tasks.");
                 MessageBox.Show(
                     this,
@@ -1030,6 +1034,7 @@ public partial class MainWindow : Window
             File.Copy(InstallPaths.ConfigBackupPath, InstallPaths.ConfigPath, overwrite: true);
             ReloadState();
             SetStatus("Configuration restored from backup.");
+            UpdateFileActionState();
             MessageBox.Show(
                 this,
                 "Configuration restored from backup successfully.",
@@ -1420,6 +1425,22 @@ public partial class MainWindow : Window
         UpdatePasswordsButton.ToolTip = hasSelection
             ? "Re-enter passwords for both users in the selected profile."
             : "Select a profile row first.";
+    }
+
+    private void UpdateFileActionState()
+    {
+        InstallPaths.EnsureRootDirectory();
+        var configExists = File.Exists(InstallPaths.ConfigPath);
+        var backupExists = File.Exists(InstallPaths.ConfigBackupPath);
+
+        OpenConfigButton.ToolTip = configExists
+            ? "Open the current config file."
+            : "Config file does not exist yet. Click to open the data folder instead.";
+
+        RestoreBackupButton.IsEnabled = backupExists;
+        RestoreBackupButton.ToolTip = backupExists
+            ? "Replace current config with the backup file and reload."
+            : "No backup config is available yet.";
     }
 
     private void UpdateDirtyUiState()
