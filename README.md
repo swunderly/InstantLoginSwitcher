@@ -95,6 +95,7 @@ If one hotkey maps to multiple valid targets for the current user, the app shows
 ## Startup Behavior
 
 `Save And Apply` automatically updates per-user startup tasks so listener mode starts at logon.
+If your signed-in account is not part of any enabled profile, the app now tells you and does not attempt to start a listener for that account.
 
 Listener mode runs the same executable with:
 
@@ -102,6 +103,24 @@ Listener mode runs the same executable with:
 
 If listener startup tasks become broken, use `Repair Startup Tasks` in the app.
 If there are no enabled profiles, repair will remove startup tasks and clear auto-logon values.
+
+## Logs And Diagnostics
+
+Use the built-in buttons in the main window:
+
+- `Open Data Folder`
+- `Open Listener Log`
+- `Open Switch Log`
+
+Runtime files are in `C:\ProgramData\InstantLoginSwitcher`.
+
+If a hotkey appears to do nothing:
+
+1. Click `Save And Apply`.
+2. Confirm the signed-in user is included in at least one enabled profile.
+3. Click `Repair Startup Tasks`.
+4. Sign out and sign back in.
+5. Check `listener.log` for load/trigger errors.
 
 ## Publish Build
 

@@ -11,6 +11,8 @@ namespace InstantLoginSwitcher.App;
 
 public partial class MainWindow : Window
 {
+    private const string DefaultHotkey = "Numpad4+Numpad6";
+
     private readonly ConfigService _configService;
     private readonly HotkeyParser _hotkeyParser;
     private readonly PasswordProtector _passwordProtector;
@@ -25,6 +27,8 @@ public partial class MainWindow : Window
     private SwitcherConfig _loadedConfig = new();
     private Guid? _editingProfileId;
     private bool _hasUnsavedChanges;
+    private bool _hasDraftChanges;
+    private int _dirtyTrackingSuspendDepth;
 
     public MainWindow(
         ConfigService configService,
@@ -56,40 +60,48 @@ public partial class MainWindow : Window
     {
         try
         {
-            _loadedConfig = _configService.Load();
-            _accountOptions = _localAccountService
+            var loadedConfig = _configService.Load();
+            var accountOptions = _localAccountService
                 .GetEnabledLocalAdministrators()
                 .Select(account => new AccountOption(account))
                 .ToList();
 
-            UserACombo.ItemsSource = _accountOptions;
-            UserBCombo.ItemsSource = _accountOptions;
-            UserACombo.DisplayMemberPath = nameof(AccountOption.Label);
-            UserBCombo.DisplayMemberPath = nameof(AccountOption.Label);
-
-            AccountsSummaryText.Text = _accountOptions.Count switch
+            RunWithoutDirtyTracking(() =>
             {
-                0 => "No local administrator accounts were found.",
-                1 => "Only one local administrator account found. At least two are required.",
-                _ => $"Available local administrator accounts: {string.Join(", ", _accountOptions.Select(option => option.Account.UserName))}"
-            };
+                _loadedConfig = loadedConfig;
+                _accountOptions = accountOptions;
 
-            _profiles.Clear();
-            foreach (var profile in _loadedConfig.Profiles.OrderBy(profile => profile.Name, StringComparer.OrdinalIgnoreCase))
-            {
-                _profiles.Add(new ProfileEditorModel
+                UserACombo.ItemsSource = _accountOptions;
+                UserBCombo.ItemsSource = _accountOptions;
+                UserACombo.DisplayMemberPath = nameof(AccountOption.Label);
+                UserBCombo.DisplayMemberPath = nameof(AccountOption.Label);
+
+                AccountsSummaryText.Text = _accountOptions.Count switch
                 {
-                    Id = profile.Id,
-                    Name = profile.Name,
-                    UserA = profile.UserA,
-                    UserB = profile.UserB,
-                    Hotkey = profile.Hotkey,
-                    Enabled = profile.Enabled
-                });
-            }
+                    0 => "No local administrator accounts were found.",
+                    1 => "Only one local administrator account found. At least two are required.",
+                    _ => $"Available local administrator accounts: {string.Join(", ", _accountOptions.Select(option => option.Account.UserName))}"
+                };
 
-            ClearFormInternal();
+                _profiles.Clear();
+                foreach (var profile in _loadedConfig.Profiles.OrderBy(profile => profile.Name, StringComparer.OrdinalIgnoreCase))
+                {
+                    _profiles.Add(new ProfileEditorModel
+                    {
+                        Id = profile.Id,
+                        Name = profile.Name,
+                        UserA = profile.UserA,
+                        UserB = profile.UserB,
+                        Hotkey = profile.Hotkey,
+                        Enabled = profile.Enabled
+                    });
+                }
+
+                ClearFormInternal();
+            });
+
             _hasUnsavedChanges = false;
+            _hasDraftChanges = false;
             SetStatus("Configuration loaded.");
         }
         catch (Exception exception)
@@ -166,6 +178,7 @@ public partial class MainWindow : Window
 
             RefreshProfileGrid();
             _hasUnsavedChanges = true;
+            _hasDraftChanges = false;
             SetStatus("Profile updated. Remember to click Save And Apply.");
         }
         else
@@ -181,6 +194,7 @@ public partial class MainWindow : Window
             });
 
             _hasUnsavedChanges = true;
+            _hasDraftChanges = false;
             SetStatus("Profile added. Remember to click Save And Apply.");
         }
 
@@ -253,6 +267,21 @@ public partial class MainWindow : Window
 
     private void SaveAndApply_Click(object sender, RoutedEventArgs e)
     {
+        if (_hasDraftChanges)
+        {
+            var continueWithoutDraft = MessageBox.Show(
+                this,
+                "You changed values in the profile form but did not click Add Profile or Update Profile. Save and apply without those form edits?",
+                "InstantLoginSwitcher",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+
+            if (continueWithoutDraft != MessageBoxResult.Yes)
+            {
+                return;
+            }
+        }
+
         try
         {
             var configToSave = BuildConfigFromUi();
@@ -272,26 +301,35 @@ public partial class MainWindow : Window
             }
 
             _taskSchedulerService.SyncListenerTasks(requiredUsers, currentExecutable);
+            var currentUserIncluded = requiredUsers.Any(user =>
+                user.Equals(Environment.UserName, StringComparison.OrdinalIgnoreCase));
             if (requiredUsers.Count == 0)
             {
                 _switchExecutor.DisableAutoLogon();
             }
-            else
+            else if (currentUserIncluded)
             {
                 _taskSchedulerService.StartListenerForUser(Environment.UserName);
             }
 
             _loadedConfig = configToSave;
             _hasUnsavedChanges = false;
-            SetStatus(requiredUsers.Count == 0
+            _hasDraftChanges = false;
+
+            var saveStatus = requiredUsers.Count == 0
                 ? "Configuration saved. No profiles enabled, startup tasks removed."
-                : "Configuration saved and startup tasks updated.");
+                : currentUserIncluded
+                    ? "Configuration saved and startup tasks updated."
+                    : "Configuration saved. Current user is not in any enabled profile, so no listener was started for this account.";
+            SetStatus(saveStatus);
 
             MessageBox.Show(
                 this,
                 requiredUsers.Count == 0
                     ? "Saved successfully. No active profiles remain, and startup tasks were removed."
-                    : "Saved successfully. Hotkey profiles are now active for configured users.",
+                    : currentUserIncluded
+                        ? "Saved successfully. Hotkey profiles are now active for configured users."
+                        : "Saved successfully. Startup tasks were updated, but this signed-in account is not part of an enabled profile.",
                 "InstantLoginSwitcher",
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);
@@ -330,15 +368,21 @@ public partial class MainWindow : Window
             }
 
             _taskSchedulerService.SyncListenerTasks(requiredUsers, currentExecutable);
+            var currentUserIncluded = requiredUsers.Any(user =>
+                user.Equals(Environment.UserName, StringComparison.OrdinalIgnoreCase));
             if (requiredUsers.Count == 0)
             {
                 _switchExecutor.DisableAutoLogon();
                 SetStatus("No active profiles found. Startup tasks removed and auto-logon values cleared.");
             }
-            else
+            else if (currentUserIncluded)
             {
                 _taskSchedulerService.StartListenerForUser(Environment.UserName);
                 SetStatus("Startup tasks repaired for configured profiles.");
+            }
+            else
+            {
+                SetStatus("Startup tasks repaired. Current user is not in an enabled profile, so listener was not started for this account.");
             }
         }
         catch (Exception exception)
@@ -390,14 +434,19 @@ public partial class MainWindow : Window
             return;
         }
 
-        _editingProfileId = selected.Id;
-        ProfileNameBox.Text = selected.Name;
-        HotkeyBox.Text = selected.Hotkey;
-        EnabledCheck.IsChecked = selected.Enabled;
-        UserACombo.SelectedItem = _accountOptions.FirstOrDefault(option =>
-            option.Account.UserName.Equals(selected.UserA, StringComparison.OrdinalIgnoreCase));
-        UserBCombo.SelectedItem = _accountOptions.FirstOrDefault(option =>
-            option.Account.UserName.Equals(selected.UserB, StringComparison.OrdinalIgnoreCase));
+        RunWithoutDirtyTracking(() =>
+        {
+            _editingProfileId = selected.Id;
+            ProfileNameBox.Text = selected.Name;
+            HotkeyBox.Text = selected.Hotkey;
+            EnabledCheck.IsChecked = selected.Enabled;
+            UserACombo.SelectedItem = _accountOptions.FirstOrDefault(option =>
+                option.Account.UserName.Equals(selected.UserA, StringComparison.OrdinalIgnoreCase));
+            UserBCombo.SelectedItem = _accountOptions.FirstOrDefault(option =>
+                option.Account.UserName.Equals(selected.UserB, StringComparison.OrdinalIgnoreCase));
+        });
+
+        _hasDraftChanges = false;
         AddOrUpdateButton.Content = "Update Profile";
         SetStatus("Editing selected profile.");
     }
@@ -534,14 +583,19 @@ public partial class MainWindow : Window
 
     private void ClearFormInternal()
     {
-        _editingProfileId = null;
-        UserACombo.SelectedItem = null;
-        UserBCombo.SelectedItem = null;
-        HotkeyBox.Text = "Numpad4+Numpad6";
-        ProfileNameBox.Text = string.Empty;
-        EnabledCheck.IsChecked = true;
-        ProfilesGrid.SelectedItem = null;
-        AddOrUpdateButton.Content = "Add Profile";
+        RunWithoutDirtyTracking(() =>
+        {
+            _editingProfileId = null;
+            UserACombo.SelectedItem = null;
+            UserBCombo.SelectedItem = null;
+            HotkeyBox.Text = DefaultHotkey;
+            ProfileNameBox.Text = string.Empty;
+            EnabledCheck.IsChecked = true;
+            ProfilesGrid.SelectedItem = null;
+            AddOrUpdateButton.Content = "Add Profile";
+        });
+
+        _hasDraftChanges = false;
     }
 
     private void RefreshProfileGrid()
@@ -561,14 +615,20 @@ public partial class MainWindow : Window
 
     private void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
-        if (!_hasUnsavedChanges)
+        if (!_hasUnsavedChanges && !_hasDraftChanges)
         {
             return;
         }
 
+        var message = _hasUnsavedChanges && _hasDraftChanges
+            ? "You have unsaved profile changes and unsaved form edits. Close without saving?"
+            : _hasUnsavedChanges
+                ? "You have unsaved profile changes. Close without saving?"
+                : "You have unsaved form edits that were not added to a profile. Close without saving?";
+
         var decision = MessageBox.Show(
             this,
-            "You have unsaved profile changes. Close without saving?",
+            message,
             "InstantLoginSwitcher",
             MessageBoxButton.YesNo,
             MessageBoxImage.Warning);
@@ -577,6 +637,50 @@ public partial class MainWindow : Window
         {
             e.Cancel = true;
         }
+    }
+
+    private void ProfileInputSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        MarkDraftChange();
+    }
+
+    private void ProfileInputTextChanged(object sender, TextChangedEventArgs e)
+    {
+        MarkDraftChange();
+    }
+
+    private void ProfileInputCheckedChanged(object sender, RoutedEventArgs e)
+    {
+        MarkDraftChange();
+    }
+
+    private void MarkDraftChange()
+    {
+        if (_dirtyTrackingSuspendDepth > 0)
+        {
+            return;
+        }
+
+        _hasDraftChanges = true;
+        if (!_hasUnsavedChanges)
+        {
+            SetStatus("Form changed. Click Add Profile or Update Profile, then Save And Apply.");
+        }
+    }
+
+    private void OpenDataFolder_Click(object sender, RoutedEventArgs e)
+    {
+        OpenPath(InstallPaths.RootDirectory, isLogFile: false);
+    }
+
+    private void OpenListenerLog_Click(object sender, RoutedEventArgs e)
+    {
+        OpenPath(InstallPaths.ListenerLogPath, isLogFile: true);
+    }
+
+    private void OpenSwitchLog_Click(object sender, RoutedEventArgs e)
+    {
+        OpenPath(InstallPaths.SwitchLogPath, isLogFile: true);
     }
 
     private bool HasDuplicateProfile(string userA, string userB, string hotkey, Guid? excludedId)
@@ -614,6 +718,60 @@ public partial class MainWindow : Window
         }
 
         destination.Add(credential);
+    }
+
+    private void OpenPath(string path, bool isLogFile)
+    {
+        try
+        {
+            InstallPaths.EnsureRootDirectory();
+
+            if (isLogFile && !File.Exists(path))
+            {
+                var folder = Path.GetDirectoryName(path) ?? InstallPaths.RootDirectory;
+                MessageBox.Show(
+                    this,
+                    $"The log file does not exist yet.\n\nLocation: {path}\n\nThe data folder will open instead.",
+                    "InstantLoginSwitcher",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = folder,
+                    UseShellExecute = true
+                });
+                return;
+            }
+
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = path,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception exception)
+        {
+            MessageBox.Show(
+                this,
+                $"Unable to open path:\n{path}\n\n{exception.Message}",
+                "InstantLoginSwitcher",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+    }
+
+    private void RunWithoutDirtyTracking(Action action)
+    {
+        _dirtyTrackingSuspendDepth++;
+        try
+        {
+            action();
+        }
+        finally
+        {
+            _dirtyTrackingSuspendDepth--;
+        }
     }
 
     private sealed class AccountOption

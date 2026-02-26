@@ -28,12 +28,13 @@ public sealed class LowLevelKeyboardHook : IDisposable
             return;
         }
 
-        using var process = Process.GetCurrentProcess();
-        using var module = process.MainModule
-            ?? throw new InvalidOperationException("Could not resolve current process module for keyboard hook.");
-
-        var moduleHandle = GetModuleHandle(module.ModuleName);
+        var moduleHandle = ResolveCurrentModuleHandle();
         _hookHandle = SetWindowsHookEx(WhKeyboardLl, _hookProc, moduleHandle, 0);
+        if (_hookHandle == IntPtr.Zero && moduleHandle != IntPtr.Zero)
+        {
+            _hookHandle = SetWindowsHookEx(WhKeyboardLl, _hookProc, IntPtr.Zero, 0);
+        }
+
         if (_hookHandle == IntPtr.Zero)
         {
             throw new InvalidOperationException($"SetWindowsHookEx failed with Win32 error {Marshal.GetLastWin32Error()}.");
@@ -75,6 +76,25 @@ public sealed class LowLevelKeyboardHook : IDisposable
         }
 
         return CallNextHookEx(_hookHandle, nCode, wParam, lParam);
+    }
+
+    private static IntPtr ResolveCurrentModuleHandle()
+    {
+        try
+        {
+            using var process = Process.GetCurrentProcess();
+            using var module = process.MainModule;
+            if (module is null || string.IsNullOrWhiteSpace(module.ModuleName))
+            {
+                return IntPtr.Zero;
+            }
+
+            return GetModuleHandle(module.ModuleName);
+        }
+        catch
+        {
+            return IntPtr.Zero;
+        }
     }
 
     private delegate IntPtr HookProc(int nCode, IntPtr wParam, IntPtr lParam);
