@@ -930,6 +930,7 @@ public partial class MainWindow : Window
 
     private bool HasDuplicateProfile(string userA, string userB, string hotkey, Guid? excludedId)
     {
+        var candidateHotkeyCanonical = TryCanonicalHotkey(hotkey);
         var orderedUsers = new[] { userA, userB }.OrderBy(value => value, StringComparer.OrdinalIgnoreCase).ToArray();
         foreach (var profile in _profiles)
         {
@@ -941,14 +942,27 @@ public partial class MainWindow : Window
             var profileOrderedUsers = new[] { profile.UserA, profile.UserB }.OrderBy(value => value, StringComparer.OrdinalIgnoreCase).ToArray();
             var sameUsers = string.Equals(orderedUsers[0], profileOrderedUsers[0], StringComparison.OrdinalIgnoreCase) &&
                             string.Equals(orderedUsers[1], profileOrderedUsers[1], StringComparison.OrdinalIgnoreCase);
+            var profileHotkeyCanonical = TryCanonicalHotkey(profile.Hotkey);
 
-            if (sameUsers && profile.Hotkey.Equals(hotkey, StringComparison.OrdinalIgnoreCase))
+            if (sameUsers && profileHotkeyCanonical.Equals(candidateHotkeyCanonical, StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }
         }
 
         return false;
+    }
+
+    private string TryCanonicalHotkey(string hotkeyText)
+    {
+        try
+        {
+            return _hotkeyParser.Parse(hotkeyText).CanonicalText;
+        }
+        catch
+        {
+            return hotkeyText?.Trim() ?? string.Empty;
+        }
     }
 
     private static void UpsertCredential(List<StoredUserCredential> destination, StoredUserCredential credential)

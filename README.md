@@ -69,6 +69,7 @@ Hotkey rules:
 - Key order is normalized automatically (for example `Alt+Ctrl+S` becomes `Ctrl+Alt+S`).
 - Generic modifiers (`Ctrl`, `Alt`, `Shift`, `Win`) match both left and right keys.
 - Examples: `Ctrl+Alt+S`, `Numpad4+Numpad6`, `Shift+F12`.
+- Duplicate profile checks use canonical hotkeys, so `Alt+Ctrl+S` and `Ctrl+Alt+S` are treated as the same combo.
 
 ## Three Users Example
 
