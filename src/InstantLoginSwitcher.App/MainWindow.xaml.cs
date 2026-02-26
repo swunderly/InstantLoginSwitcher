@@ -442,6 +442,20 @@ public partial class MainWindow : Window
 
     private void RepairStartupTasks_Click(object sender, RoutedEventArgs e)
     {
+        if (_hasUnsavedChanges || _hasDraftChanges)
+        {
+            var decision = MessageBox.Show(
+                this,
+                "You have unsaved profile edits. Repair will use the current profiles shown in this window, not necessarily what is already saved to disk. Continue?",
+                "InstantLoginSwitcher",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+            if (decision != MessageBoxResult.Yes)
+            {
+                return;
+            }
+        }
+
         try
         {
             var requiredUsers = _profiles
@@ -493,6 +507,20 @@ public partial class MainWindow : Window
 
     private void RemoveAllTasks_Click(object sender, RoutedEventArgs e)
     {
+        if (_hasUnsavedChanges || _hasDraftChanges)
+        {
+            var decisionWithUnsaved = MessageBox.Show(
+                this,
+                "You have unsaved profile edits. Remove All Startup Tasks only affects tasks/auto-logon right now and does not save or delete profile edits. Continue?",
+                "InstantLoginSwitcher",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+            if (decisionWithUnsaved != MessageBoxResult.Yes)
+            {
+                return;
+            }
+        }
+
         var confirmation = MessageBox.Show(
             this,
             "Remove all InstantLoginSwitcher startup tasks and clear auto logon registry values?",

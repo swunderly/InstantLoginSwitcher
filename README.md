@@ -122,6 +122,9 @@ Listener mode runs the same executable with:
 
 If listener startup tasks become broken, use `Repair Startup Tasks` in the app.
 If there are no enabled profiles, repair will remove startup tasks and clear auto-logon values.
+If unsaved edits exist, the app now warns that repair uses the currently shown profiles.
+
+`Remove All Startup Tasks` also warns when unsaved edits exist, because it changes tasks/auto-logon but does not save or delete profile edits.
 
 ## Logs And Diagnostics
 
