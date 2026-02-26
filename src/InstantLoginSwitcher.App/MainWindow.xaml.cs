@@ -130,7 +130,10 @@ public partial class MainWindow : Window
                 "InstantLoginSwitcher",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
-            RuntimeSummaryText.Text = "Runtime summary unavailable because config failed to load.";
+            SetRuntimeSummary(
+                "Runtime summary unavailable because config failed to load.",
+                RuntimeSummarySeverity.Error,
+                "Fix configuration load errors, then click Refresh Runtime Status.");
         }
     }
 
@@ -2084,6 +2087,13 @@ public partial class MainWindow : Window
         public string ErrorMessage { get; set; } = string.Empty;
     }
 
+    private enum RuntimeSummarySeverity
+    {
+        Healthy,
+        Warning,
+        Error
+    }
+
     private readonly struct ListenerLogBaseline
     {
         public DateTime LastWriteUtc { get; init; }
@@ -2643,16 +2653,31 @@ public partial class MainWindow : Window
              string.Equals(profile.UserB, currentUser, StringComparison.OrdinalIgnoreCase)));
     }
 
+    private bool IsCurrentUserInEnabledSavedProfiles()
+    {
+        var currentUser = Environment.UserName;
+        return _loadedConfig.Profiles.Any(profile =>
+            profile.Enabled &&
+            (string.Equals(profile.UserA, currentUser, StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(profile.UserB, currentUser, StringComparison.OrdinalIgnoreCase)));
+    }
+
     private void UpdateRuntimeActionState()
     {
-        var hasEnabledProfiles = _profiles.Any(profile => profile.Enabled);
         var hasUnsavedEdits = _hasUnsavedChanges || _hasDraftChanges;
-        var currentUserCovered = IsCurrentUserInEnabledUiProfiles();
+        var hasEnabledProfilesInUi = _profiles.Any(profile => profile.Enabled);
+        var hasEnabledProfilesInSaved = _loadedConfig.Profiles.Any(profile => profile.Enabled);
+        var hasEffectiveEnabledProfiles = hasUnsavedEdits ? hasEnabledProfilesInSaved : hasEnabledProfilesInUi;
+        var currentUserCoveredInUi = IsCurrentUserInEnabledUiProfiles();
+        var currentUserCoveredInSaved = IsCurrentUserInEnabledSavedProfiles();
+        var currentUserCovered = hasUnsavedEdits ? currentUserCoveredInSaved : currentUserCoveredInUi;
 
-        StartListenerButton.IsEnabled = hasEnabledProfiles;
-        if (!hasEnabledProfiles)
+        StartListenerButton.IsEnabled = hasEffectiveEnabledProfiles;
+        if (!hasEffectiveEnabledProfiles)
         {
-            StartListenerButton.ToolTip = "Add and enable at least one profile first.";
+            StartListenerButton.ToolTip = hasUnsavedEdits
+                ? "Saved config has no enabled profiles. Click Save And Apply after enabling a profile."
+                : "Add and enable at least one profile first.";
         }
         else if (hasUnsavedEdits)
         {
@@ -2667,8 +2692,8 @@ public partial class MainWindow : Window
             StartListenerButton.ToolTip = "Current user is not in enabled profiles. You can still run this to verify listener startup.";
         }
 
-        QuickFixButton.IsEnabled = hasEnabledProfiles && !hasUnsavedEdits && currentUserCovered;
-        if (!hasEnabledProfiles)
+        QuickFixButton.IsEnabled = hasEffectiveEnabledProfiles && !hasUnsavedEdits && currentUserCovered;
+        if (!hasEffectiveEnabledProfiles)
         {
             QuickFixButton.ToolTip = "Add and enable at least one profile first.";
         }
@@ -2702,14 +2727,24 @@ public partial class MainWindow : Window
             var listenerRunning = IsListenerMutexPresentForUser(currentUser);
 
             var taskStateText = "not applicable";
+            var taskError = string.Empty;
+            string? expectedTaskName = null;
             if (currentUserIncluded)
             {
-                var expectedTask = _taskSchedulerService.GetTaskNameForUser(currentUser);
-                var taskNames = _taskSchedulerService.GetManagedTaskNamesForDiagnostics();
-                taskStateText = taskNames.Any(task =>
-                    task.Equals(expectedTask, StringComparison.OrdinalIgnoreCase))
-                    ? "present"
-                    : "missing";
+                expectedTaskName = _taskSchedulerService.GetTaskNameForUser(currentUser);
+                try
+                {
+                    var taskNames = _taskSchedulerService.GetManagedTaskNamesForDiagnostics();
+                    taskStateText = taskNames.Any(task =>
+                        task.Equals(expectedTaskName, StringComparison.OrdinalIgnoreCase))
+                        ? "present"
+                        : "missing";
+                }
+                catch (Exception exception)
+                {
+                    taskStateText = "unavailable";
+                    taskError = exception.Message;
+                }
             }
 
             var coverageText = enabledProfiles.Count == 0
@@ -2720,12 +2755,56 @@ public partial class MainWindow : Window
                         : $"Current user '{currentUser}' has {activeHotkeys.Count} active hotkey(s)."
                     : $"Current user '{currentUser}' is not in enabled saved profiles.";
 
-            RuntimeSummaryText.Text = $"{coverageText} Listener: {(listenerRunning ? "running" : "not running")}. Startup task: {taskStateText}.";
+            var severity = RuntimeSummarySeverity.Warning;
+            if (enabledProfiles.Count == 0)
+            {
+                severity = RuntimeSummarySeverity.Warning;
+            }
+            else if (currentUserIncluded &&
+                     activeHotkeys.Count > 0 &&
+                     listenerRunning &&
+                     string.Equals(taskStateText, "present", StringComparison.OrdinalIgnoreCase))
+            {
+                severity = RuntimeSummarySeverity.Healthy;
+            }
+
+            var summary = $"{coverageText} Listener: {(listenerRunning ? "running" : "not running")}. Startup task: {taskStateText}.";
+            var tooltip = new StringBuilder();
+            tooltip.AppendLine($"Enabled profiles: {enabledProfiles.Count}");
+            tooltip.AppendLine($"Current user covered: {currentUserIncluded}");
+            tooltip.AppendLine($"Current user active hotkeys: {(activeHotkeys.Count == 0 ? "(none)" : string.Join(", ", activeHotkeys))}");
+            tooltip.AppendLine($"Listener mutex: {(listenerRunning ? "present" : "missing")}");
+            if (!string.IsNullOrWhiteSpace(expectedTaskName))
+            {
+                tooltip.AppendLine($"Expected startup task: {expectedTaskName}");
+            }
+            tooltip.AppendLine($"Startup task state: {taskStateText}");
+            if (!string.IsNullOrWhiteSpace(taskError))
+            {
+                tooltip.AppendLine("Task query error: " + taskError);
+            }
+
+            SetRuntimeSummary(summary, severity, tooltip.ToString());
         }
         catch (Exception exception)
         {
-            RuntimeSummaryText.Text = "Runtime summary unavailable: " + exception.Message;
+            SetRuntimeSummary(
+                "Runtime summary unavailable: " + exception.Message,
+                RuntimeSummarySeverity.Error,
+                "Runtime summary refresh failed.");
         }
+    }
+
+    private void SetRuntimeSummary(string text, RuntimeSummarySeverity severity, string? tooltip)
+    {
+        RuntimeSummaryText.Text = text;
+        RuntimeSummaryText.ToolTip = string.IsNullOrWhiteSpace(tooltip) ? null : tooltip;
+        RuntimeSummaryText.Foreground = severity switch
+        {
+            RuntimeSummarySeverity.Healthy => new SolidColorBrush(Color.FromRgb(0x1E, 0x6B, 0x24)),
+            RuntimeSummarySeverity.Warning => new SolidColorBrush(Color.FromRgb(0x8A, 0x5A, 0x00)),
+            _ => new SolidColorBrush(Color.FromRgb(0x8B, 0x1A, 0x1A))
+        };
     }
 
     private void UpdateDirtyUiState()

@@ -163,6 +163,7 @@ Listener startup confirmation now checks newly written log content, reducing sta
 Runtime files are in `C:\ProgramData\InstantLoginSwitcher`.
 On smaller windows, the action button row is horizontally scrollable.
 The bottom runtime summary line shows current-user coverage, listener state, and startup-task presence.
+The runtime summary is color-coded (green = healthy, amber = warning, red = error); hover it for detailed route/task diagnostics.
 Diagnostics now include validation issues such as invalid hotkeys or missing stored passwords.
 Diagnostics also report the expected startup task name for the current user and whether it exists.
 Diagnostics now include `ExpectedTasksByUser` and `UnexpectedStartupTasks` sections for faster task troubleshooting.
