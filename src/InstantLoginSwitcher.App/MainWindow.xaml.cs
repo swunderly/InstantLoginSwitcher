@@ -56,6 +56,8 @@ public partial class MainWindow : Window
         Closing += MainWindow_Closing;
         PreviewKeyDown += MainWindow_PreviewKeyDown;
         ProfilesGrid.ItemsSource = _profiles;
+        UpdateSelectionActionState();
+        UpdateFormValidationState();
 
         ReloadState();
     }
@@ -107,6 +109,7 @@ public partial class MainWindow : Window
             _hasUnsavedChanges = false;
             _hasDraftChanges = false;
             UpdateFormValidationState();
+            UpdateSelectionActionState();
             SetStatus("Configuration loaded.");
         }
         catch (Exception exception)
@@ -363,6 +366,20 @@ public partial class MainWindow : Window
 
     private void Reload_Click(object sender, RoutedEventArgs e)
     {
+        if (_hasUnsavedChanges || _hasDraftChanges)
+        {
+            var decision = MessageBox.Show(
+                this,
+                "You have unsaved changes. Reloading will discard them. Continue?",
+                "InstantLoginSwitcher",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+            if (decision != MessageBoxResult.Yes)
+            {
+                return;
+            }
+        }
+
         ReloadState();
     }
 
@@ -447,6 +464,10 @@ public partial class MainWindow : Window
     {
         if (ProfilesGrid.SelectedItem is not ProfileEditorModel selected)
         {
+            _editingProfileId = null;
+            AddOrUpdateButton.Content = "Add Profile";
+            UpdateFormValidationState();
+            UpdateSelectionActionState();
             return;
         }
 
@@ -465,6 +486,7 @@ public partial class MainWindow : Window
         _hasDraftChanges = false;
         AddOrUpdateButton.Content = "Update Profile";
         UpdateFormValidationState();
+        UpdateSelectionActionState();
         SetStatus("Editing selected profile.");
     }
 
@@ -619,6 +641,7 @@ public partial class MainWindow : Window
 
         _hasDraftChanges = false;
         UpdateFormValidationState();
+        UpdateSelectionActionState();
     }
 
     private void RefreshProfileGrid()
@@ -683,6 +706,11 @@ public partial class MainWindow : Window
 
     private bool IsProfileInputFocused()
     {
+        if (UserACombo.IsDropDownOpen || UserBCombo.IsDropDownOpen)
+        {
+            return false;
+        }
+
         return UserACombo.IsKeyboardFocusWithin ||
                UserBCombo.IsKeyboardFocusWithin ||
                HotkeyBox.IsKeyboardFocusWithin ||
@@ -733,6 +761,11 @@ public partial class MainWindow : Window
 
     private (bool IsValid, string Message) ValidateCurrentForm()
     {
+        if (_accountOptions.Count < 2)
+        {
+            return (false, "At least two enabled local administrator accounts are required.");
+        }
+
         if (GetSelectedAccount(UserACombo) is null)
         {
             return (false, "Choose a first user to build a profile.");
@@ -1042,6 +1075,13 @@ public partial class MainWindow : Window
         {
             builder.AppendLine($"  (read failed: {exception.Message})");
         }
+    }
+
+    private void UpdateSelectionActionState()
+    {
+        var hasSelection = ProfilesGrid.SelectedItem is ProfileEditorModel;
+        RemoveSelectedButton.IsEnabled = hasSelection;
+        UpdatePasswordsButton.IsEnabled = hasSelection;
     }
 
     private void RunWithoutDirtyTracking(Action action)

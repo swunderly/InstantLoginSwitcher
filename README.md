@@ -51,6 +51,7 @@ Test project included:
 The profile form now validates as you type. The `Add Profile`/`Update Profile` button stays disabled until the current form input is valid.
 Tip: press `Ctrl+S` in the app to run `Save And Apply`.
 Tip: press `Enter` while focused in profile inputs to run `Add Profile`/`Update Profile` when the form is valid.
+Profile-only actions (`Remove Selected Hotkey`, `Update Passwords`) stay disabled until you select a profile row.
 
 During save, the app prompts for missing account passwords and validates them.
 If no enabled profiles remain, save will remove startup tasks and clear auto-logon values.
@@ -95,6 +96,7 @@ If profile edits are not saved yet, the app now asks you to save first before up
 ## Unsaved Changes Protection
 
 If you close the app with unsaved profile edits, the app now prompts before closing.
+If you click `Reload` with unsaved edits, the app also prompts before discarding changes.
 
 ## Multi-Target Chooser UI
 
