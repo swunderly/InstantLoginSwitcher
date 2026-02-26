@@ -132,6 +132,7 @@ Use the built-in buttons in the main window:
 
 - `Open Data Folder`
 - `Open Config File`
+- `Restore Backup Config`
 - `Open Listener Log`
 - `Open Switch Log`
 - `Copy Diagnostics` (copies profile/task summary plus recent log tails to clipboard)
@@ -141,6 +142,7 @@ On smaller windows, the action button row is horizontally scrollable.
 Diagnostics now include validation issues such as invalid hotkeys or missing stored passwords.
 Diagnostics also report the expected startup task name for the current user and whether it exists.
 Diagnostics include an internal errors section if any data source (for example task query) fails.
+Diagnostics include config/backup file existence and last-write timestamps.
 
 If a hotkey appears to do nothing:
 

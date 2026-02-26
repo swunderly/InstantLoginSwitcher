@@ -986,6 +986,68 @@ public partial class MainWindow : Window
         OpenPath(InstallPaths.ConfigPath, isLogFile: true);
     }
 
+    private void RestoreBackupConfig_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            InstallPaths.EnsureRootDirectory();
+            if (!File.Exists(InstallPaths.ConfigBackupPath))
+            {
+                MessageBox.Show(
+                    this,
+                    $"Backup file not found:\n{InstallPaths.ConfigBackupPath}",
+                    "InstantLoginSwitcher",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            if (_hasUnsavedChanges || _hasDraftChanges)
+            {
+                var unsavedDecision = MessageBox.Show(
+                    this,
+                    "You have unsaved edits. Restoring backup will discard current unsaved changes. Continue?",
+                    "InstantLoginSwitcher",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning);
+                if (unsavedDecision != MessageBoxResult.Yes)
+                {
+                    return;
+                }
+            }
+
+            var confirmation = MessageBox.Show(
+                this,
+                "Replace the current config with backup and reload now?",
+                "InstantLoginSwitcher",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+            if (confirmation != MessageBoxResult.Yes)
+            {
+                return;
+            }
+
+            File.Copy(InstallPaths.ConfigBackupPath, InstallPaths.ConfigPath, overwrite: true);
+            ReloadState();
+            SetStatus("Configuration restored from backup.");
+            MessageBox.Show(
+                this,
+                "Configuration restored from backup successfully.",
+                "InstantLoginSwitcher",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+        }
+        catch (Exception exception)
+        {
+            MessageBox.Show(
+                this,
+                $"Restore backup failed: {exception.Message}",
+                "InstantLoginSwitcher",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+    }
+
     private void OpenListenerLog_Click(object sender, RoutedEventArgs e)
     {
         OpenPath(InstallPaths.ListenerLogPath, isLogFile: true);
@@ -1174,8 +1236,11 @@ public partial class MainWindow : Window
         builder.AppendLine($"{InstallPaths.RootOverrideEnvironmentVariable}: {Environment.GetEnvironmentVariable(InstallPaths.RootOverrideEnvironmentVariable) ?? "(not set)"}");
         builder.AppendLine($"DataFolder: {InstallPaths.RootDirectory}");
         builder.AppendLine($"ConfigPath: {InstallPaths.ConfigPath}");
+        builder.AppendLine($"ConfigExists: {File.Exists(InstallPaths.ConfigPath)}");
+        builder.AppendLine($"ConfigLastWriteUtc: {GetFileLastWriteUtcText(InstallPaths.ConfigPath)}");
         builder.AppendLine($"ConfigBackupPath: {InstallPaths.ConfigBackupPath}");
         builder.AppendLine($"ConfigBackupExists: {File.Exists(InstallPaths.ConfigBackupPath)}");
+        builder.AppendLine($"ConfigBackupLastWriteUtc: {GetFileLastWriteUtcText(InstallPaths.ConfigBackupPath)}");
         builder.AppendLine($"PendingAutoLogonMarker: {File.Exists(InstallPaths.PendingAutoLogonMarkerPath)}");
         builder.AppendLine($"ConfigProfilesTotal: {config.Profiles.Count}");
         builder.AppendLine($"ConfigProfilesEnabled: {enabledProfiles.Count}");
@@ -1326,6 +1391,23 @@ public partial class MainWindow : Window
         catch (Exception exception)
         {
             builder.AppendLine($"  (read failed: {exception.Message})");
+        }
+    }
+
+    private static string GetFileLastWriteUtcText(string path)
+    {
+        try
+        {
+            if (!File.Exists(path))
+            {
+                return "(missing)";
+            }
+
+            return File.GetLastWriteTimeUtc(path).ToString("o");
+        }
+        catch (Exception exception)
+        {
+            return "(unavailable: " + exception.Message + ")";
         }
     }
 
