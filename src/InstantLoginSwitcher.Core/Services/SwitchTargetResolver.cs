@@ -7,10 +7,20 @@ public sealed class SwitchTargetResolver
     public IReadOnlyList<SwitchTarget> ResolveTargets(SwitcherConfig config, string hotkeyCanonical, string currentUser)
     {
         var hotkeyParser = new HotkeyParser();
+        var normalizedCurrentUser = currentUser?.Trim() ?? string.Empty;
         var map = new Dictionary<string, SwitchTarget>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var profile in config.Profiles.Where(profile => profile.Enabled))
         {
+            var userA = profile.UserA?.Trim() ?? string.Empty;
+            var userB = profile.UserB?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(userA) ||
+                string.IsNullOrWhiteSpace(userB) ||
+                userA.Equals(userB, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
             string parsedProfileHotkey;
             try
             {
@@ -27,13 +37,13 @@ public sealed class SwitchTargetResolver
             }
 
             string? targetUser = null;
-            if (profile.UserA.Equals(currentUser, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(userA, normalizedCurrentUser, StringComparison.OrdinalIgnoreCase))
             {
-                targetUser = profile.UserB;
+                targetUser = userB;
             }
-            else if (profile.UserB.Equals(currentUser, StringComparison.OrdinalIgnoreCase))
+            else if (string.Equals(userB, normalizedCurrentUser, StringComparison.OrdinalIgnoreCase))
             {
-                targetUser = profile.UserA;
+                targetUser = userA;
             }
 
             if (string.IsNullOrWhiteSpace(targetUser) || map.ContainsKey(targetUser))
@@ -42,7 +52,7 @@ public sealed class SwitchTargetResolver
             }
 
             var credential = config.Users.FirstOrDefault(user =>
-                user.UserName.Equals(targetUser, StringComparison.OrdinalIgnoreCase));
+                string.Equals(user.UserName?.Trim(), targetUser, StringComparison.OrdinalIgnoreCase));
             if (credential is null)
             {
                 continue;
@@ -50,10 +60,12 @@ public sealed class SwitchTargetResolver
 
             map[targetUser] = new SwitchTarget
             {
-                UserName = credential.UserName,
-                FullName = string.IsNullOrWhiteSpace(credential.FullName) ? credential.UserName : credential.FullName,
-                Qualified = credential.Qualified,
-                PicturePath = credential.PicturePath
+                UserName = targetUser,
+                FullName = string.IsNullOrWhiteSpace(credential.FullName) ? targetUser : credential.FullName,
+                Qualified = string.IsNullOrWhiteSpace(credential.Qualified)
+                    ? $"{Environment.MachineName}\\{targetUser}"
+                    : credential.Qualified,
+                PicturePath = credential.PicturePath ?? string.Empty
             };
         }
 

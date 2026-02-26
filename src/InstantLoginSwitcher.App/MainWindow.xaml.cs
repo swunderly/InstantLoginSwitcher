@@ -276,11 +276,19 @@ public partial class MainWindow : Window
 
         try
         {
-            var accountByUser = _accountOptions
-                .GroupBy(option => option.Account.UserName, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(group => group.Key, group => group.First().Account, StringComparer.OrdinalIgnoreCase);
+            var accountByUser = GetCurrentLocalAdminAccountMap();
 
-            foreach (var userName in new[] { selected.UserA, selected.UserB }.Distinct(StringComparer.OrdinalIgnoreCase))
+            var selectedUsers = new[] { selected.UserA, selected.UserB }
+                .Select(user => user?.Trim() ?? string.Empty)
+                .Where(user => !string.IsNullOrWhiteSpace(user))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (selectedUsers.Count == 0)
+            {
+                throw new InvalidOperationException("Selected profile does not include valid users.");
+            }
+
+            foreach (var userName in selectedUsers)
             {
                 if (!accountByUser.TryGetValue(userName, out var account))
                 {
@@ -303,6 +311,139 @@ public partial class MainWindow : Window
                 "InstantLoginSwitcher",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
+            UpdateRuntimeSummary();
+        }
+    }
+
+    private void RepairCredentialIssues_Click(object sender, RoutedEventArgs e)
+    {
+        if (_hasUnsavedChanges || _hasDraftChanges)
+        {
+            MessageBox.Show(
+                this,
+                "Repair Credential Issues uses saved config.\n\nClick Save And Apply first, then run this action.",
+                "InstantLoginSwitcher",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
+        try
+        {
+            var config = _configService.Load();
+            var enabledProfiles = config.Profiles.Where(profile => profile.Enabled).ToList();
+            if (enabledProfiles.Count == 0)
+            {
+                MessageBox.Show(
+                    this,
+                    "No enabled profiles were found in saved config.",
+                    "InstantLoginSwitcher",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            var requiredUsers = GetRequiredUsersFromEnabledProfiles(enabledProfiles);
+            var usersToRepair = GetUsersNeedingCredentialRepair(config, requiredUsers);
+            if (usersToRepair.Count == 0)
+            {
+                SetStatus("No credential issues found for enabled profile users.");
+                MessageBox.Show(
+                    this,
+                    "No credential issues were found for enabled profile users.",
+                    "InstantLoginSwitcher",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            var preview = string.Join(
+                Environment.NewLine,
+                usersToRepair.Select(entry => $"- {entry.UserName}: {entry.Reason}"));
+            var confirmation = MessageBox.Show(
+                this,
+                $"Repair credentials for {usersToRepair.Count} user(s)?\n\n{preview}\n\nYou will be prompted for each affected user's password.",
+                "InstantLoginSwitcher",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+            if (confirmation != MessageBoxResult.Yes)
+            {
+                return;
+            }
+
+            var accountByUser = GetCurrentLocalAdminAccountMap();
+            var replacements = new List<StoredUserCredential>();
+            var skippedUsers = new List<string>();
+            foreach (var entry in usersToRepair)
+            {
+                if (!accountByUser.TryGetValue(entry.UserName, out var account))
+                {
+                    skippedUsers.Add($"{entry.UserName} (not found as enabled local admin)");
+                    continue;
+                }
+
+                replacements.Add(CreateCredentialFromPrompt(account));
+            }
+
+            if (replacements.Count == 0)
+            {
+                var skippedText = skippedUsers.Count == 0
+                    ? "No users were updated."
+                    : "No users were updated.\n\nSkipped:\n" + string.Join(Environment.NewLine, skippedUsers.Select(user => "- " + user));
+                MessageBox.Show(
+                    this,
+                    skippedText,
+                    "InstantLoginSwitcher",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                SetStatus("Credential repair did not update any users.");
+                return;
+            }
+
+            var replacementUsers = replacements
+                .Select(credential => credential.UserName)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            config.Users = config.Users
+                .Where(user => string.IsNullOrWhiteSpace(user.UserName) ||
+                               !replacementUsers.Contains(user.UserName.Trim()))
+                .ToList();
+            config.Users.AddRange(replacements);
+
+            _configService.Save(config);
+            _loadedConfig = config;
+            UpdateFileActionState();
+
+            var summaryMessage = $"Repaired credentials for {replacements.Count} user(s).";
+            if (skippedUsers.Count > 0)
+            {
+                summaryMessage += "\n\nSkipped:\n" + string.Join(Environment.NewLine, skippedUsers.Select(user => "- " + user));
+            }
+
+            SetStatus($"Repaired credentials for {replacements.Count} user(s).");
+            MessageBox.Show(
+                this,
+                summaryMessage,
+                "InstantLoginSwitcher",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+        }
+        catch (Exception exception)
+        {
+            if (exception.Message.Contains("cancelled", StringComparison.OrdinalIgnoreCase))
+            {
+                SetStatus("Credential repair cancelled.");
+                return;
+            }
+
+            MessageBox.Show(
+                this,
+                $"Credential repair failed: {exception.Message}",
+                "InstantLoginSwitcher",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+        finally
+        {
             UpdateRuntimeSummary();
         }
     }
@@ -969,6 +1110,14 @@ public partial class MainWindow : Window
                ?? candidates[0];
     }
 
+    private Dictionary<string, LocalAdminAccount> GetCurrentLocalAdminAccountMap()
+    {
+        return _localAccountService
+            .GetEnabledLocalAdministrators()
+            .GroupBy(account => account.UserName, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+    }
+
     private LocalAdminAccount? GetSelectedAccount(ComboBox comboBox)
     {
         return (comboBox.SelectedItem as AccountOption)?.Account;
@@ -1499,12 +1648,12 @@ public partial class MainWindow : Window
 
             if (issues.Any(issue => issue.Contains("unreadable password data", StringComparison.OrdinalIgnoreCase)))
             {
-                builder.AppendLine("Tip: Click 'Update Passwords For Selected Profile' (or remove/re-add profile), then Save And Apply.");
+                builder.AppendLine("Tip: Click 'Repair Credential Issues', then Save And Apply if profile edits are pending.");
             }
 
             if (issues.Any(issue => issue.Contains("Multiple credential entries found", StringComparison.OrdinalIgnoreCase)))
             {
-                builder.AppendLine("Tip: Update passwords for affected profiles and click Save And Apply to normalize saved credentials.");
+                builder.AppendLine("Tip: Click 'Repair Credential Issues' to normalize duplicate credential entries.");
             }
 
             if (warnings.Any(warning => warning.Contains("Unsaved UI edits are present.", StringComparison.OrdinalIgnoreCase)))
@@ -1836,15 +1985,15 @@ public partial class MainWindow : Window
 
     private static void UpsertCredential(List<StoredUserCredential> destination, StoredUserCredential credential)
     {
-        var existingIndex = destination.FindIndex(entry =>
-            entry.UserName.Equals(credential.UserName, StringComparison.OrdinalIgnoreCase));
-
-        if (existingIndex >= 0)
+        var normalizedUserName = credential.UserName?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(normalizedUserName))
         {
-            destination[existingIndex] = credential;
-            return;
+            throw new InvalidOperationException("Credential user name cannot be blank.");
         }
 
+        credential.UserName = normalizedUserName;
+        destination.RemoveAll(entry =>
+            string.Equals(entry.UserName?.Trim(), normalizedUserName, StringComparison.OrdinalIgnoreCase));
         destination.Add(credential);
     }
 
@@ -2155,6 +2304,12 @@ public partial class MainWindow : Window
         public string UserName { get; init; } = string.Empty;
         public bool IsUsable { get; init; }
         public string Issue { get; init; } = string.Empty;
+    }
+
+    private sealed class CredentialIssueItem
+    {
+        public string UserName { get; init; } = string.Empty;
+        public string Reason { get; init; } = string.Empty;
     }
 
     private readonly struct ListenerLogBaseline
@@ -2737,6 +2892,60 @@ public partial class MainWindow : Window
             .ToList();
     }
 
+    private IReadOnlyList<CredentialIssueItem> GetUsersNeedingCredentialRepair(
+        SwitcherConfig config,
+        IReadOnlyCollection<string> scopedUsers)
+    {
+        var byUser = config.Users
+            .Where(credential => !string.IsNullOrWhiteSpace(credential.UserName))
+            .GroupBy(credential => credential.UserName.Trim(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.OrdinalIgnoreCase);
+
+        var issues = new List<CredentialIssueItem>();
+        foreach (var candidateUser in scopedUsers
+                     .Where(user => !string.IsNullOrWhiteSpace(user))
+                     .Distinct(StringComparer.OrdinalIgnoreCase)
+                     .OrderBy(user => user, StringComparer.OrdinalIgnoreCase))
+        {
+            var userName = candidateUser.Trim();
+            if (string.IsNullOrWhiteSpace(userName))
+            {
+                continue;
+            }
+
+            if (!byUser.TryGetValue(userName, out var entries) || entries.Count == 0)
+            {
+                issues.Add(new CredentialIssueItem
+                {
+                    UserName = userName,
+                    Reason = "missing saved password"
+                });
+                continue;
+            }
+
+            if (entries.Count > 1)
+            {
+                issues.Add(new CredentialIssueItem
+                {
+                    UserName = userName,
+                    Reason = $"duplicate credential entries ({entries.Count})"
+                });
+                continue;
+            }
+
+            if (!TryIsCredentialUsable(entries[0], out var reason))
+            {
+                issues.Add(new CredentialIssueItem
+                {
+                    UserName = userName,
+                    Reason = string.IsNullOrWhiteSpace(reason) ? "unreadable saved password" : reason
+                });
+            }
+        }
+
+        return issues;
+    }
+
     private static string ToSingleLine(string? value, int maxLength)
     {
         var normalized = (value ?? string.Empty)
@@ -2946,6 +3155,20 @@ public partial class MainWindow : Window
         else
         {
             QuickFixButton.ToolTip = "Repair startup tasks, start listener for current user, and run setup check.";
+        }
+
+        RepairCredentialsButton.IsEnabled = hasEffectiveEnabledProfiles && !hasUnsavedEdits;
+        if (!hasEffectiveEnabledProfiles)
+        {
+            RepairCredentialsButton.ToolTip = "Add and enable at least one profile first.";
+        }
+        else if (hasUnsavedEdits)
+        {
+            RepairCredentialsButton.ToolTip = "Click Save And Apply first, then run credential repair against saved config.";
+        }
+        else
+        {
+            RepairCredentialsButton.ToolTip = "Repair missing, duplicate, or unreadable saved credentials for enabled profile users.";
         }
     }
 

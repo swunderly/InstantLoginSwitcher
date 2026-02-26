@@ -19,7 +19,8 @@
         <ListBox x:Name="TargetsList"
                  Grid.Row="1"
                  Margin="0,8,0,8"
-                 ItemsSource="{Binding}">
+                 ItemsSource="{Binding}"
+                 MouseDoubleClick="TargetsList_MouseDoubleClick">
             <ListBox.ItemTemplate>
                 <DataTemplate>
                     <Border Padding="8" Margin="2" BorderBrush="#FFD7D7D7" BorderThickness="1" CornerRadius="6">
@@ -44,8 +45,8 @@
         </ListBox>
 
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
-            <Button Width="100" Height="30" Margin="0,0,8,0" Content="Cancel" Click="Cancel_Click" />
-            <Button Width="100" Height="30" Content="Switch" Click="Switch_Click" />
+            <Button Width="100" Height="30" Margin="0,0,8,0" Content="Cancel" Click="Cancel_Click" IsCancel="True" />
+            <Button Width="100" Height="30" Content="Switch" Click="Switch_Click" IsDefault="True" />
         </StackPanel>
     </Grid>
 </Window>

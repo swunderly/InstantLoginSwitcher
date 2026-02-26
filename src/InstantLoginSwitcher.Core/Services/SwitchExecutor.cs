@@ -29,12 +29,20 @@ public sealed class SwitchExecutor
 
     private (StoredUserCredential Credential, string Password) ResolveUsableCredential(SwitcherConfig config, string targetUser)
     {
+        var normalizedTargetUser = targetUser?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(normalizedTargetUser))
+        {
+            throw new InvalidOperationException("Target user is not valid.");
+        }
+
         var candidates = config.Users
-            .Where(user => user.UserName.Equals(targetUser, StringComparison.OrdinalIgnoreCase))
+            .Where(user =>
+                !string.IsNullOrWhiteSpace(user.UserName) &&
+                string.Equals(user.UserName.Trim(), normalizedTargetUser, StringComparison.OrdinalIgnoreCase))
             .ToList();
         if (candidates.Count == 0)
         {
-            throw new InvalidOperationException($"No credential is configured for target user '{targetUser}'.");
+            throw new InvalidOperationException($"No credential is configured for target user '{normalizedTargetUser}'.");
         }
 
         var failures = new List<string>();
@@ -67,7 +75,7 @@ public sealed class SwitchExecutor
             ? string.Empty
             : $" Details: {string.Join(" | ", failures.Take(3))}";
         throw new InvalidOperationException(
-            $"No usable credential was found for '{targetUser}'. Re-enter passwords for this profile and save again.{failureSuffix}");
+            $"No usable credential was found for '{normalizedTargetUser}'. Re-enter passwords for this profile and save again.{failureSuffix}");
     }
 
     private static void ConfigureWinlogon(StoredUserCredential target, string password)

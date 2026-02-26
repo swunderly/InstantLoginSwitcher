@@ -73,4 +73,81 @@ public sealed class SwitchTargetResolverTests
 
         Assert.Empty(result);
     }
+
+    [Fact]
+    public void ResolveTargets_IgnoresMalformedProfilesAndWhitespaceNames()
+    {
+        var config = new SwitcherConfig
+        {
+            Profiles =
+            [
+                new SwitchProfile
+                {
+                    Name = "Malformed",
+                    UserA = null!,
+                    UserB = "bob",
+                    Hotkey = "Ctrl+Alt+S",
+                    Enabled = true
+                },
+                new SwitchProfile
+                {
+                    Name = "Valid",
+                    UserA = " alice ",
+                    UserB = " bob ",
+                    Hotkey = "Ctrl+Alt+S",
+                    Enabled = true
+                }
+            ],
+            Users =
+            [
+                new StoredUserCredential
+                {
+                    UserName = "bob",
+                    FullName = "Bob",
+                    Qualified = "PC\\bob",
+                    PasswordEncrypted = "encrypted"
+                }
+            ]
+        };
+
+        var result = _resolver.ResolveTargets(config, "Ctrl+Alt+S", "alice");
+
+        Assert.Single(result);
+        Assert.Equal("bob", result[0].UserName);
+    }
+
+    [Fact]
+    public void ResolveTargets_UsesQualifiedFallbackWhenCredentialQualifiedIsMissing()
+    {
+        var config = new SwitcherConfig
+        {
+            Profiles =
+            [
+                new SwitchProfile
+                {
+                    Name = "Alice-Bob",
+                    UserA = "alice",
+                    UserB = "bob",
+                    Hotkey = "Ctrl+Alt+S",
+                    Enabled = true
+                }
+            ],
+            Users =
+            [
+                new StoredUserCredential
+                {
+                    UserName = "bob",
+                    FullName = "Bob",
+                    Qualified = string.Empty,
+                    PasswordEncrypted = "encrypted"
+                }
+            ]
+        };
+
+        var result = _resolver.ResolveTargets(config, "Ctrl+Alt+S", "alice");
+
+        Assert.Single(result);
+        Assert.Equal("bob", result[0].UserName);
+        Assert.EndsWith("\\bob", result[0].Qualified, StringComparison.OrdinalIgnoreCase);
+    }
 }

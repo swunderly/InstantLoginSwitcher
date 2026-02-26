@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Windows;
+using System.Windows.Input;
 using InstantLoginSwitcher.Core.Models;
 
 namespace InstantLoginSwitcher.App.Views;
@@ -33,5 +34,15 @@ public partial class ChooserWindow : Window
     private void Cancel_Click(object sender, RoutedEventArgs e)
     {
         DialogResult = false;
+    }
+
+    private void TargetsList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (TargetsList.SelectedItem is null)
+        {
+            return;
+        }
+
+        Switch_Click(sender, new RoutedEventArgs());
     }
 }

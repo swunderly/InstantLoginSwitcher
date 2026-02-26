@@ -142,6 +142,7 @@ Use the built-in buttons in the main window:
 - `Open Switch Log`
 - `Repair + Check Setup` (repairs startup tasks and immediately runs setup validation)
 - `Quick Fix Current User` (repairs startup tasks, starts listener for current user, then runs setup check)
+- `Repair Credential Issues` (reprompts and rewrites missing/duplicate/unreadable saved credentials for users in enabled profiles)
 - `Start Listener For Current User` (starts listener mode immediately for the signed-in account so you can test without signing out)
 - `Check Setup` (flags missing credentials, invalid/duplicate enabled profiles, missing startup tasks per enabled user, stale old tasks, and missing active routes)
 - `Refresh Runtime Status` (refreshes live current-user coverage + listener/task summary text at the bottom)
@@ -149,6 +150,7 @@ Use the built-in buttons in the main window:
 - `Save Diagnostics To File` (writes a timestamped diagnostics text file into `C:\ProgramData\InstantLoginSwitcher`)
 
 `Quick Fix Current User` is disabled until you save edits and have at least one enabled profile.
+`Repair Credential Issues` is disabled while unsaved edits are present, because it works from saved config on disk.
 `Start Listener For Current User` is disabled when no enabled profiles exist.
 Quick Fix is also disabled when the signed-in user is not in any enabled profile in the current view.
 
