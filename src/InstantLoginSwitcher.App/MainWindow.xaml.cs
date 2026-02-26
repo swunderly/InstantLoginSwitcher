@@ -1451,6 +1451,16 @@ public partial class MainWindow : Window
                 builder.AppendLine("Tip: Re-enter profile passwords or fix invalid hotkeys, click Save And Apply, then rerun Check Setup.");
             }
 
+            if (issues.Any(issue => issue.Contains("unreadable password data", StringComparison.OrdinalIgnoreCase)))
+            {
+                builder.AppendLine("Tip: Click 'Update Passwords For Selected Profile' (or remove/re-add profile), then Save And Apply.");
+            }
+
+            if (issues.Any(issue => issue.Contains("Multiple credential entries found", StringComparison.OrdinalIgnoreCase)))
+            {
+                builder.AppendLine("Tip: Update passwords for affected profiles and click Save And Apply to normalize saved credentials.");
+            }
+
             if (warnings.Any(warning => warning.Contains("Unsaved UI edits are present.", StringComparison.OrdinalIgnoreCase)))
             {
                 builder.AppendLine("Tip: Click Save And Apply, then run Check Setup again.");
@@ -2094,6 +2104,13 @@ public partial class MainWindow : Window
         Error
     }
 
+    private sealed class CredentialHealthEntry
+    {
+        public string UserName { get; init; } = string.Empty;
+        public bool IsUsable { get; init; }
+        public string Issue { get; init; } = string.Empty;
+    }
+
     private readonly struct ListenerLogBaseline
     {
         public DateTime LastWriteUtc { get; init; }
@@ -2119,12 +2136,22 @@ public partial class MainWindow : Window
         var enabledProfiles = config.Profiles.Where(profile => profile.Enabled).ToList();
         var requiredUsers = GetRequiredUsersFromEnabledProfiles(enabledProfiles);
         var chooserRoutes = GetChooserRouteSummaries(enabledProfiles);
+        var credentialHealth = BuildCredentialHealth(config);
+        var usableCredentialUsers = credentialHealth
+            .Where(entry => entry.IsUsable)
+            .Select(entry => entry.UserName)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var unreadableCredentialUsers = credentialHealth
+            .Where(entry => !entry.IsUsable)
+            .Select(entry => entry.UserName)
+            .OrderBy(user => user, StringComparer.OrdinalIgnoreCase)
+            .ToList();
         var currentUserInEnabledProfiles = requiredUsers.Any(user =>
             user.Equals(Environment.UserName, StringComparison.OrdinalIgnoreCase));
         var activeHotkeysByUser = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
         foreach (var user in requiredUsers)
         {
-            activeHotkeysByUser[user] = GetActiveHotkeysForUser(config, user);
+            activeHotkeysByUser[user] = GetActiveHotkeysForUser(config, user, usableCredentialUsers);
         }
 
         var usersWithNoActiveHotkeys = activeHotkeysByUser
@@ -2133,7 +2160,7 @@ public partial class MainWindow : Window
             .OrderBy(user => user, StringComparer.OrdinalIgnoreCase)
             .ToList();
         var currentUserActiveHotkeys = currentUserInEnabledProfiles
-            ? GetActiveHotkeysForUser(config, Environment.UserName)
+            ? GetActiveHotkeysForUser(config, Environment.UserName, usableCredentialUsers)
             : Array.Empty<string>();
 
         List<string> startupTasks;
@@ -2210,6 +2237,7 @@ public partial class MainWindow : Window
         builder.AppendLine($"ConfigProfilesEnabled: {enabledProfiles.Count}");
         builder.AppendLine($"ChooserRouteCount: {chooserRoutes.Count}");
         builder.AppendLine($"ConfigUsersWithCredentials: {config.Users.Count(user => !string.IsNullOrWhiteSpace(user.PasswordEncrypted))}");
+        builder.AppendLine($"CredentialReadFailures: {unreadableCredentialUsers.Count}");
         builder.AppendLine($"CurrentUserInEnabledProfiles: {currentUserInEnabledProfiles}");
         builder.AppendLine($"CurrentUserActiveHotkeys: {currentUserActiveHotkeys.Count}");
         builder.AppendLine($"ExpectedCurrentUserTask: {expectedCurrentUserTask}");
@@ -2274,6 +2302,26 @@ public partial class MainWindow : Window
                 }
 
                 builder.AppendLine($"  - {pair.Key}: {string.Join(", ", pair.Value)}");
+            }
+        }
+
+        builder.AppendLine("CredentialHealth:");
+        if (credentialHealth.Count == 0)
+        {
+            builder.AppendLine("  (none)");
+        }
+        else
+        {
+            foreach (var entry in credentialHealth)
+            {
+                if (entry.IsUsable)
+                {
+                    builder.AppendLine($"  - {entry.UserName}: usable");
+                    continue;
+                }
+
+                var issue = string.IsNullOrWhiteSpace(entry.Issue) ? "unreadable" : entry.Issue;
+                builder.AppendLine($"  - {entry.UserName}: unreadable ({issue})");
             }
         }
 
@@ -2362,7 +2410,10 @@ public partial class MainWindow : Window
             .ToList();
     }
 
-    private IReadOnlyList<string> GetActiveHotkeysForUser(SwitcherConfig config, string userName)
+    private IReadOnlyList<string> GetActiveHotkeysForUser(
+        SwitcherConfig config,
+        string userName,
+        ISet<string>? usableCredentialUsers = null)
     {
         if (string.IsNullOrWhiteSpace(userName))
         {
@@ -2375,10 +2426,11 @@ public partial class MainWindow : Window
             return Array.Empty<string>();
         }
 
-        var credentialUsers = config.Users
-            .Where(user => !string.IsNullOrWhiteSpace(user.UserName) && !string.IsNullOrWhiteSpace(user.PasswordEncrypted))
-            .Select(user => user.UserName.Trim())
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var credentialUsers = usableCredentialUsers ??
+                              BuildCredentialHealth(config)
+                                  .Where(entry => entry.IsUsable)
+                                  .Select(entry => entry.UserName)
+                                  .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         var hotkeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var profile in config.Profiles.Where(profile => profile.Enabled))
@@ -2498,6 +2550,18 @@ public partial class MainWindow : Window
     private IReadOnlyList<string> GetConfigValidationIssues(SwitcherConfig config)
     {
         var issues = new List<string>();
+        var duplicateCredentialUsers = config.Users
+            .Where(user => !string.IsNullOrWhiteSpace(user.UserName))
+            .GroupBy(user => user.UserName.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .OrderBy(user => user, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        foreach (var duplicateUser in duplicateCredentialUsers)
+        {
+            issues.Add($"Multiple credential entries found for '{duplicateUser}'. Re-save passwords to normalize config.");
+        }
+
         var credentialByUser = config.Users
             .GroupBy(user => user.UserName, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
@@ -2537,6 +2601,12 @@ public partial class MainWindow : Window
                     string.IsNullOrWhiteSpace(credential.PasswordEncrypted))
                 {
                     issues.Add($"Profile '{profileName}' is missing a saved password for '{userName}'.");
+                    continue;
+                }
+
+                if (!TryIsCredentialUsable(credential, out var reason))
+                {
+                    issues.Add($"Profile '{profileName}' has unreadable password data for '{userName}' ({reason}). Re-enter passwords.");
                 }
             }
 
@@ -2556,6 +2626,83 @@ public partial class MainWindow : Window
         }
 
         return issues;
+    }
+
+    private bool TryIsCredentialUsable(StoredUserCredential credential, out string reason)
+    {
+        reason = string.Empty;
+        if (credential is null || string.IsNullOrWhiteSpace(credential.PasswordEncrypted))
+        {
+            reason = "missing encrypted value";
+            return false;
+        }
+
+        try
+        {
+            var plainText = _passwordProtector.Unprotect(credential.PasswordEncrypted);
+            if (string.IsNullOrWhiteSpace(plainText))
+            {
+                reason = "decrypted value is blank";
+                return false;
+            }
+
+            return true;
+        }
+        catch (Exception exception)
+        {
+            reason = ToSingleLine(exception.Message, maxLength: 180);
+            return false;
+        }
+    }
+
+    private IReadOnlyList<CredentialHealthEntry> BuildCredentialHealth(SwitcherConfig config)
+    {
+        var result = new List<CredentialHealthEntry>();
+        var byUser = config.Users
+            .Where(credential => !string.IsNullOrWhiteSpace(credential.UserName))
+            .GroupBy(credential => credential.UserName.Trim(), StringComparer.OrdinalIgnoreCase);
+
+        foreach (var group in byUser)
+        {
+            var userName = group.Key;
+            if (group.Count() > 1)
+            {
+                result.Add(new CredentialHealthEntry
+                {
+                    UserName = userName,
+                    IsUsable = false,
+                    Issue = $"duplicate credential entries ({group.Count()})"
+                });
+                continue;
+            }
+
+            var credential = group.First();
+            var usable = TryIsCredentialUsable(credential, out var reason);
+            result.Add(new CredentialHealthEntry
+            {
+                UserName = userName,
+                IsUsable = usable,
+                Issue = usable ? string.Empty : reason
+            });
+        }
+
+        return result
+            .OrderBy(entry => entry.UserName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static string ToSingleLine(string? value, int maxLength)
+    {
+        var normalized = (value ?? string.Empty)
+            .Replace("\r", " ", StringComparison.Ordinal)
+            .Replace("\n", " ", StringComparison.Ordinal)
+            .Trim();
+        if (normalized.Length <= maxLength || maxLength <= 3)
+        {
+            return normalized;
+        }
+
+        return normalized[..(maxLength - 3)] + "...";
     }
 
     private static void AppendLogTail(StringBuilder builder, string path)
@@ -2719,10 +2866,20 @@ public partial class MainWindow : Window
             var currentUser = Environment.UserName;
             var enabledProfiles = config.Profiles.Where(profile => profile.Enabled).ToList();
             var requiredUsers = GetRequiredUsersFromEnabledProfiles(enabledProfiles);
+            var credentialHealth = BuildCredentialHealth(config);
+            var usableCredentialUsers = credentialHealth
+                .Where(entry => entry.IsUsable)
+                .Select(entry => entry.UserName)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var unreadableCredentialUsers = credentialHealth
+                .Where(entry => !entry.IsUsable)
+                .Select(entry => entry.UserName)
+                .OrderBy(user => user, StringComparer.OrdinalIgnoreCase)
+                .ToList();
             var currentUserIncluded = requiredUsers.Any(user =>
                 user.Equals(currentUser, StringComparison.OrdinalIgnoreCase));
             var activeHotkeys = currentUserIncluded
-                ? GetActiveHotkeysForUser(config, currentUser)
+                ? GetActiveHotkeysForUser(config, currentUser, usableCredentialUsers)
                 : Array.Empty<string>();
             var listenerRunning = IsListenerMutexPresentForUser(currentUser);
 
@@ -2768,9 +2925,23 @@ public partial class MainWindow : Window
                 severity = RuntimeSummarySeverity.Healthy;
             }
 
+            if (severity == RuntimeSummarySeverity.Healthy && unreadableCredentialUsers.Count > 0)
+            {
+                severity = RuntimeSummarySeverity.Warning;
+            }
+
             var summary = $"{coverageText} Listener: {(listenerRunning ? "running" : "not running")}. Startup task: {taskStateText}.";
+            if (unreadableCredentialUsers.Count > 0)
+            {
+                summary += $" Credential issues: {unreadableCredentialUsers.Count}.";
+            }
+            if (_hasUnsavedChanges || _hasDraftChanges)
+            {
+                summary += " Unsaved edits pending.";
+            }
             var tooltip = new StringBuilder();
             tooltip.AppendLine($"Enabled profiles: {enabledProfiles.Count}");
+            tooltip.AppendLine($"Unsaved UI edits: {_hasUnsavedChanges || _hasDraftChanges}");
             tooltip.AppendLine($"Current user covered: {currentUserIncluded}");
             tooltip.AppendLine($"Current user active hotkeys: {(activeHotkeys.Count == 0 ? "(none)" : string.Join(", ", activeHotkeys))}");
             tooltip.AppendLine($"Listener mutex: {(listenerRunning ? "present" : "missing")}");
@@ -2782,6 +2953,11 @@ public partial class MainWindow : Window
             if (!string.IsNullOrWhiteSpace(taskError))
             {
                 tooltip.AppendLine("Task query error: " + taskError);
+            }
+            tooltip.AppendLine($"Credential read failures: {unreadableCredentialUsers.Count}");
+            if (unreadableCredentialUsers.Count > 0)
+            {
+                tooltip.AppendLine($"Unreadable credentials: {string.Join(", ", unreadableCredentialUsers)}");
             }
 
             SetRuntimeSummary(summary, severity, tooltip.ToString());

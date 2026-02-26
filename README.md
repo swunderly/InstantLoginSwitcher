@@ -159,16 +159,19 @@ Listener startup confirmation now checks newly written log content, reducing sta
 `Check Setup` warns when unsaved UI edits are present because it validates the saved config on disk.
 `Check Setup` now also flags when the current user should have listener coverage but the listener process is not currently running.
 `Check Setup` now flags when current user is in enabled profiles but has no valid hotkey routes.
+`Check Setup` now flags unreadable/corrupt saved password entries and duplicate credential entries.
 
 Runtime files are in `C:\ProgramData\InstantLoginSwitcher`.
 On smaller windows, the action button row is horizontally scrollable.
 The bottom runtime summary line shows current-user coverage, listener state, and startup-task presence.
 The runtime summary is color-coded (green = healthy, amber = warning, red = error); hover it for detailed route/task diagnostics.
+When unsaved form edits exist, runtime summary now labels that diagnostics are showing saved-state behavior.
 Diagnostics now include validation issues such as invalid hotkeys or missing stored passwords.
 Diagnostics also report the expected startup task name for the current user and whether it exists.
 Diagnostics now include `ExpectedTasksByUser` and `UnexpectedStartupTasks` sections for faster task troubleshooting.
 Diagnostics include chooser-route summaries so you can see where one hotkey opens a target picker.
 Diagnostics include `ActiveHotkeysByUser` so you can confirm each user has switchable routes.
+Diagnostics now include `CredentialHealth` and `CredentialReadFailures` so corrupt saved passwords are surfaced quickly.
 If clipboard copy fails, `Copy Diagnostics` now falls back to saving a diagnostics file automatically.
 Diagnostics include an internal errors section if any data source (for example task query) fails.
 Diagnostics include config/backup file existence and last-write timestamps.
