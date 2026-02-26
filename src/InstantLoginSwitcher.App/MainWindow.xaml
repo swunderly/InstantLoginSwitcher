@@ -88,6 +88,7 @@
                 <Button Height="34" MinWidth="150" Margin="0,0,8,0" Content="Open Data Folder" Click="OpenDataFolder_Click" />
                 <Button Height="34" MinWidth="150" Margin="0,0,8,0" Content="Open Listener Log" Click="OpenListenerLog_Click" />
                 <Button Height="34" MinWidth="150" Margin="0,0,8,0" Content="Open Switch Log" Click="OpenSwitchLog_Click" />
+                <Button Height="34" MinWidth="210" Margin="0,0,8,0" Content="Copy Diagnostics" Click="CopyDiagnostics_Click" />
                 <Button Height="34" MinWidth="210" Margin="0,0,8,0" Content="Remove All Startup Tasks" Click="RemoveAllTasks_Click" />
             </StackPanel>
             <TextBlock x:Name="StatusText" VerticalAlignment="Center" TextWrapping="Wrap" Foreground="#FF2A4E6E" FontWeight="SemiBold" />

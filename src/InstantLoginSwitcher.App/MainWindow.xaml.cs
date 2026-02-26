@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using InstantLoginSwitcher.App.Models;
@@ -683,6 +684,31 @@ public partial class MainWindow : Window
         OpenPath(InstallPaths.SwitchLogPath, isLogFile: true);
     }
 
+    private void CopyDiagnostics_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var diagnostics = BuildDiagnosticsSummary();
+            Clipboard.SetText(diagnostics);
+            SetStatus("Diagnostics copied to clipboard.");
+            MessageBox.Show(
+                this,
+                "Diagnostics were copied to your clipboard. You can paste them into GitHub issues or support messages.",
+                "InstantLoginSwitcher",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+        }
+        catch (Exception exception)
+        {
+            MessageBox.Show(
+                this,
+                $"Failed to copy diagnostics: {exception.Message}",
+                "InstantLoginSwitcher",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+    }
+
     private bool HasDuplicateProfile(string userA, string userB, string hotkey, Guid? excludedId)
     {
         var orderedUsers = new[] { userA, userB }.OrderBy(value => value, StringComparer.OrdinalIgnoreCase).ToArray();
@@ -758,6 +784,104 @@ public partial class MainWindow : Window
                 "InstantLoginSwitcher",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
+        }
+    }
+
+    private string BuildDiagnosticsSummary()
+    {
+        InstallPaths.EnsureRootDirectory();
+
+        var config = _configService.Load();
+        var enabledProfiles = config.Profiles.Where(profile => profile.Enabled).ToList();
+        var requiredUsers = enabledProfiles
+            .SelectMany(profile => new[] { profile.UserA, profile.UserB })
+            .Where(user => !string.IsNullOrWhiteSpace(user))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(user => user, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var startupTasks = _taskSchedulerService
+            .GetManagedTaskNamesForDiagnostics()
+            .OrderBy(task => task, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var builder = new StringBuilder();
+        builder.AppendLine("InstantLoginSwitcher Diagnostics");
+        builder.AppendLine($"UTC: {DateTime.UtcNow:o}");
+        builder.AppendLine($"Machine: {Environment.MachineName}");
+        builder.AppendLine($"CurrentUser: {Environment.UserName}");
+        builder.AppendLine($"DataFolder: {InstallPaths.RootDirectory}");
+        builder.AppendLine($"ConfigPath: {InstallPaths.ConfigPath}");
+        builder.AppendLine($"PendingAutoLogonMarker: {File.Exists(InstallPaths.PendingAutoLogonMarkerPath)}");
+        builder.AppendLine($"ConfigProfilesTotal: {config.Profiles.Count}");
+        builder.AppendLine($"ConfigProfilesEnabled: {enabledProfiles.Count}");
+        builder.AppendLine($"ConfigUsersWithCredentials: {config.Users.Count(user => !string.IsNullOrWhiteSpace(user.PasswordEncrypted))}");
+        builder.AppendLine($"CurrentUserInEnabledProfiles: {requiredUsers.Any(user => user.Equals(Environment.UserName, StringComparison.OrdinalIgnoreCase))}");
+
+        builder.AppendLine("EnabledProfiles:");
+        if (enabledProfiles.Count == 0)
+        {
+            builder.AppendLine("  (none)");
+        }
+        else
+        {
+            foreach (var profile in enabledProfiles.OrderBy(profile => profile.Name, StringComparer.OrdinalIgnoreCase))
+            {
+                builder.AppendLine($"  - {profile.Name} | {profile.UserA}<->{profile.UserB} | {profile.Hotkey}");
+            }
+        }
+
+        builder.AppendLine("StartupTasks:");
+        if (startupTasks.Count == 0)
+        {
+            builder.AppendLine("  (none)");
+        }
+        else
+        {
+            foreach (var task in startupTasks)
+            {
+                builder.AppendLine($"  - {task}");
+            }
+        }
+
+        builder.AppendLine("ListenerLogTail:");
+        AppendLogTail(builder, InstallPaths.ListenerLogPath);
+        builder.AppendLine("SwitchLogTail:");
+        AppendLogTail(builder, InstallPaths.SwitchLogPath);
+
+        return builder.ToString();
+    }
+
+    private static void AppendLogTail(StringBuilder builder, string path)
+    {
+        try
+        {
+            if (!File.Exists(path))
+            {
+                builder.AppendLine("  (missing)");
+                return;
+            }
+
+            const int tailSize = 60;
+            var tail = new Queue<string>(tailSize);
+            foreach (var line in File.ReadLines(path))
+            {
+                if (tail.Count == tailSize)
+                {
+                    tail.Dequeue();
+                }
+
+                tail.Enqueue(line);
+            }
+
+            foreach (var line in tail)
+            {
+                builder.AppendLine("  " + line);
+            }
+        }
+        catch (Exception exception)
+        {
+            builder.AppendLine($"  (read failed: {exception.Message})");
         }
     }
 

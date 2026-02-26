@@ -59,6 +59,11 @@ public sealed class TaskSchedulerService
         }
     }
 
+    public IReadOnlyList<string> GetManagedTaskNamesForDiagnostics()
+    {
+        return GetManagedTaskNames();
+    }
+
     public string GetTaskNameForUser(string userName)
     {
         var normalized = userName.Trim();

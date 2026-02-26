@@ -113,6 +113,7 @@ Use the built-in buttons in the main window:
 - `Open Data Folder`
 - `Open Listener Log`
 - `Open Switch Log`
+- `Copy Diagnostics` (copies profile/task summary plus recent log tails to clipboard)
 
 Runtime files are in `C:\ProgramData\InstantLoginSwitcher`.
 
