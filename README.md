@@ -51,6 +51,7 @@ Test project included:
 The profile form now validates as you type. The `Add Profile`/`Update Profile` button stays disabled until the current form input is valid.
 Tip: press `Ctrl+S` in the app to run `Save And Apply`.
 Tip: press `Enter` while focused in profile inputs to run `Add Profile`/`Update Profile` when the form is valid.
+Tip: press `Esc` while focused in profile inputs to clear the form quickly.
 Tip: if your PC has exactly two enabled admin accounts, selecting one user auto-fills the other box.
 Hotkeys are normalized automatically when the hotkey field loses focus.
 Profile-only actions (`Remove Selected Hotkey`, `Update Passwords`) stay disabled until you select a profile row.

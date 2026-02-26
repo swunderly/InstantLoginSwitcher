@@ -701,6 +701,16 @@ public partial class MainWindow : Window
         {
             AddOrUpdateProfile_Click(sender, new RoutedEventArgs());
             e.Handled = true;
+            return;
+        }
+
+        if (Keyboard.Modifiers == ModifierKeys.None &&
+            e.Key == Key.Escape &&
+            IsProfileInputFocused())
+        {
+            ClearFormInternal();
+            SetStatus("Profile form cleared.");
+            e.Handled = true;
         }
     }
 
