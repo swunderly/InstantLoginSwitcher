@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using InstantLoginSwitcher.App.Models;
 using InstantLoginSwitcher.App.Views;
@@ -53,6 +54,7 @@ public partial class MainWindow : Window
 
         InitializeComponent();
         Closing += MainWindow_Closing;
+        PreviewKeyDown += MainWindow_PreviewKeyDown;
         ProfilesGrid.ItemsSource = _profiles;
 
         ReloadState();
@@ -646,6 +648,15 @@ public partial class MainWindow : Window
         if (decision != MessageBoxResult.Yes)
         {
             e.Cancel = true;
+        }
+    }
+
+    private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.S)
+        {
+            SaveAndApply_Click(sender, new RoutedEventArgs());
+            e.Handled = true;
         }
     }
 

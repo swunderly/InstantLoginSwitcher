@@ -87,21 +87,37 @@
             </DataGrid>
         </GroupBox>
 
-        <DockPanel Grid.Row="3" Margin="0,12,0,0" LastChildFill="True">
-            <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
-                <Button Height="34" MinWidth="160" Margin="0,0,8,0" Content="Save And Apply" Click="SaveAndApply_Click" />
-                <Button Height="34" MinWidth="170" Margin="0,0,8,0" Content="Remove Selected Hotkey" Click="RemoveSelectedProfile_Click" />
-                <Button Height="34" MinWidth="240" Margin="0,0,8,0" Content="Update Passwords For Selected Profile" Click="UpdatePasswordsForSelectedProfile_Click" />
-                <Button Height="34" MinWidth="130" Margin="0,0,8,0" Content="Clear Form" Click="ClearForm_Click" />
-                <Button Height="34" MinWidth="100" Margin="0,0,8,0" Content="Reload" Click="Reload_Click" />
-                <Button Height="34" MinWidth="170" Margin="0,0,8,0" Content="Repair Startup Tasks" Click="RepairStartupTasks_Click" />
-                <Button Height="34" MinWidth="150" Margin="0,0,8,0" Content="Open Data Folder" Click="OpenDataFolder_Click" />
-                <Button Height="34" MinWidth="150" Margin="0,0,8,0" Content="Open Listener Log" Click="OpenListenerLog_Click" />
-                <Button Height="34" MinWidth="150" Margin="0,0,8,0" Content="Open Switch Log" Click="OpenSwitchLog_Click" />
-                <Button Height="34" MinWidth="210" Margin="0,0,8,0" Content="Copy Diagnostics" Click="CopyDiagnostics_Click" />
-                <Button Height="34" MinWidth="210" Margin="0,0,8,0" Content="Remove All Startup Tasks" Click="RemoveAllTasks_Click" />
-            </StackPanel>
-            <TextBlock x:Name="StatusText" VerticalAlignment="Center" TextWrapping="Wrap" Foreground="#FF2A4E6E" FontWeight="SemiBold" />
-        </DockPanel>
+        <Grid Grid.Row="3" Margin="0,12,0,0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <ScrollViewer Grid.Row="0"
+                          HorizontalScrollBarVisibility="Auto"
+                          VerticalScrollBarVisibility="Disabled"
+                          CanContentScroll="False">
+                <StackPanel Orientation="Horizontal">
+                    <Button Height="34" MinWidth="160" Margin="0,0,8,0" Content="Save And Apply" Click="SaveAndApply_Click" />
+                    <Button Height="34" MinWidth="170" Margin="0,0,8,0" Content="Remove Selected Hotkey" Click="RemoveSelectedProfile_Click" />
+                    <Button Height="34" MinWidth="240" Margin="0,0,8,0" Content="Update Passwords For Selected Profile" Click="UpdatePasswordsForSelectedProfile_Click" />
+                    <Button Height="34" MinWidth="130" Margin="0,0,8,0" Content="Clear Form" Click="ClearForm_Click" />
+                    <Button Height="34" MinWidth="100" Margin="0,0,8,0" Content="Reload" Click="Reload_Click" />
+                    <Button Height="34" MinWidth="170" Margin="0,0,8,0" Content="Repair Startup Tasks" Click="RepairStartupTasks_Click" />
+                    <Button Height="34" MinWidth="150" Margin="0,0,8,0" Content="Open Data Folder" Click="OpenDataFolder_Click" />
+                    <Button Height="34" MinWidth="150" Margin="0,0,8,0" Content="Open Listener Log" Click="OpenListenerLog_Click" />
+                    <Button Height="34" MinWidth="150" Margin="0,0,8,0" Content="Open Switch Log" Click="OpenSwitchLog_Click" />
+                    <Button Height="34" MinWidth="210" Margin="0,0,8,0" Content="Copy Diagnostics" Click="CopyDiagnostics_Click" />
+                    <Button Height="34" MinWidth="210" Margin="0,0,8,0" Content="Remove All Startup Tasks" Click="RemoveAllTasks_Click" />
+                </StackPanel>
+            </ScrollViewer>
+
+            <TextBlock x:Name="StatusText"
+                       Grid.Row="1"
+                       Margin="0,8,0,0"
+                       TextWrapping="Wrap"
+                       Foreground="#FF2A4E6E"
+                       FontWeight="SemiBold" />
+        </Grid>
     </Grid>
 </Window>

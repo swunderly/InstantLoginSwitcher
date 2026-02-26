@@ -49,6 +49,7 @@ Test project included:
 5. Click `Save And Apply`.
 
 The profile form now validates as you type. The `Add Profile`/`Update Profile` button stays disabled until the current form input is valid.
+Tip: press `Ctrl+S` in the app to run `Save And Apply`.
 
 During save, the app prompts for missing account passwords and validates them.
 If no enabled profiles remain, save will remove startup tasks and clear auto-logon values.
@@ -118,6 +119,7 @@ Use the built-in buttons in the main window:
 - `Copy Diagnostics` (copies profile/task summary plus recent log tails to clipboard)
 
 Runtime files are in `C:\ProgramData\InstantLoginSwitcher`.
+On smaller windows, the action button row is horizontally scrollable.
 
 If a hotkey appears to do nothing:
 
