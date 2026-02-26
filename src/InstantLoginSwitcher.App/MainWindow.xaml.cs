@@ -37,6 +37,10 @@ public partial class MainWindow : Window
     private bool _hasUnsavedChanges;
     private bool _hasDraftChanges;
     private int _dirtyTrackingSuspendDepth;
+    private string _runtimeSummaryBaseText = "Runtime status not loaded yet.";
+    private string _runtimeSummaryBaseTooltip = string.Empty;
+    private RuntimeSummarySeverity _runtimeSummaryBaseSeverity = RuntimeSummarySeverity.Warning;
+    private bool _runtimeSummaryInitialized;
 
     public MainWindow(
         ConfigService configService,
@@ -513,6 +517,17 @@ public partial class MainWindow : Window
 
     private void QuickFixCurrentUser_Click(object sender, RoutedEventArgs e)
     {
+        if (_hasUnsavedChanges || _hasDraftChanges)
+        {
+            MessageBox.Show(
+                this,
+                "Quick Fix uses saved config plus current startup/runtime state.\n\nClick Save And Apply first, then run Quick Fix.",
+                "InstantLoginSwitcher",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
         if (!_profiles.Any(profile => profile.Enabled))
         {
             MessageBox.Show(
@@ -524,22 +539,11 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (!IsCurrentUserInEnabledUiProfiles())
+        if (!IsCurrentUserInEnabledSavedProfiles())
         {
             MessageBox.Show(
                 this,
-                $"Current user '{Environment.UserName}' is not in enabled profiles in this view.\n\nQuick Fix only applies to the signed-in user. Add a profile for this account, click Save And Apply, then retry.",
-                "InstantLoginSwitcher",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
-            return;
-        }
-
-        if (_hasUnsavedChanges || _hasDraftChanges)
-        {
-            MessageBox.Show(
-                this,
-                "Quick Fix uses saved config plus current startup/runtime state.\n\nClick Save And Apply first, then run Quick Fix.",
+                $"Current user '{Environment.UserName}' is not in enabled saved profiles.\n\nQuick Fix only applies to the signed-in user. Add a profile for this account, click Save And Apply, then retry.",
                 "InstantLoginSwitcher",
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);
@@ -2809,6 +2813,51 @@ public partial class MainWindow : Window
              string.Equals(profile.UserB, currentUser, StringComparison.OrdinalIgnoreCase)));
     }
 
+    private (int EnabledProfileCount, bool CurrentUserIncluded, int HotkeyPreviewCount, int InvalidHotkeyCount)
+        GetUiDraftCoverage(string currentUser)
+    {
+        var enabledProfiles = _profiles
+            .Where(profile => profile.Enabled)
+            .ToList();
+        var currentUserIncluded = enabledProfiles.Any(profile =>
+            string.Equals(profile.UserA, currentUser, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(profile.UserB, currentUser, StringComparison.OrdinalIgnoreCase));
+
+        var hotkeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var invalidHotkeys = 0;
+        foreach (var profile in enabledProfiles)
+        {
+            var userA = profile.UserA?.Trim() ?? string.Empty;
+            var userB = profile.UserB?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(userA) ||
+                string.IsNullOrWhiteSpace(userB) ||
+                userA.Equals(userB, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var referencesCurrentUser =
+                userA.Equals(currentUser, StringComparison.OrdinalIgnoreCase) ||
+                userB.Equals(currentUser, StringComparison.OrdinalIgnoreCase);
+            if (!referencesCurrentUser)
+            {
+                continue;
+            }
+
+            try
+            {
+                var canonical = _hotkeyParser.Parse(profile.Hotkey).CanonicalText;
+                hotkeys.Add(canonical);
+            }
+            catch
+            {
+                invalidHotkeys++;
+            }
+        }
+
+        return (enabledProfiles.Count, currentUserIncluded, hotkeys.Count, invalidHotkeys);
+    }
+
     private void UpdateRuntimeActionState()
     {
         var hasUnsavedEdits = _hasUnsavedChanges || _hasDraftChanges;
@@ -2864,6 +2913,8 @@ public partial class MainWindow : Window
         {
             var config = _configService.Load();
             var currentUser = Environment.UserName;
+            var hasUnsavedEdits = _hasUnsavedChanges || _hasDraftChanges;
+            var draftCoverage = hasUnsavedEdits ? GetUiDraftCoverage(currentUser) : default;
             var enabledProfiles = config.Profiles.Where(profile => profile.Enabled).ToList();
             var requiredUsers = GetRequiredUsersFromEnabledProfiles(enabledProfiles);
             var credentialHealth = BuildCredentialHealth(config);
@@ -2925,6 +2976,11 @@ public partial class MainWindow : Window
                 severity = RuntimeSummarySeverity.Healthy;
             }
 
+            if (string.Equals(taskStateText, "unavailable", StringComparison.OrdinalIgnoreCase))
+            {
+                severity = RuntimeSummarySeverity.Error;
+            }
+
             if (severity == RuntimeSummarySeverity.Healthy && unreadableCredentialUsers.Count > 0)
             {
                 severity = RuntimeSummarySeverity.Warning;
@@ -2935,13 +2991,22 @@ public partial class MainWindow : Window
             {
                 summary += $" Credential issues: {unreadableCredentialUsers.Count}.";
             }
-            if (_hasUnsavedChanges || _hasDraftChanges)
+            if (hasUnsavedEdits)
             {
-                summary += " Unsaved edits pending.";
+                summary += $" Draft view: {draftCoverage.EnabledProfileCount} enabled profile(s), current user {(draftCoverage.CurrentUserIncluded ? "included" : "not included")}, hotkey preview {draftCoverage.HotkeyPreviewCount}";
+                if (draftCoverage.InvalidHotkeyCount > 0)
+                {
+                    summary += $", invalid hotkeys {draftCoverage.InvalidHotkeyCount}";
+                }
+
+                summary += ".";
+                if (severity == RuntimeSummarySeverity.Healthy)
+                {
+                    severity = RuntimeSummarySeverity.Warning;
+                }
             }
             var tooltip = new StringBuilder();
             tooltip.AppendLine($"Enabled profiles: {enabledProfiles.Count}");
-            tooltip.AppendLine($"Unsaved UI edits: {_hasUnsavedChanges || _hasDraftChanges}");
             tooltip.AppendLine($"Current user covered: {currentUserIncluded}");
             tooltip.AppendLine($"Current user active hotkeys: {(activeHotkeys.Count == 0 ? "(none)" : string.Join(", ", activeHotkeys))}");
             tooltip.AppendLine($"Listener mutex: {(listenerRunning ? "present" : "missing")}");
@@ -2959,6 +3024,13 @@ public partial class MainWindow : Window
             {
                 tooltip.AppendLine($"Unreadable credentials: {string.Join(", ", unreadableCredentialUsers)}");
             }
+            if (hasUnsavedEdits)
+            {
+                tooltip.AppendLine($"Draft enabled profiles: {draftCoverage.EnabledProfileCount}");
+                tooltip.AppendLine($"Draft current-user coverage: {draftCoverage.CurrentUserIncluded}");
+                tooltip.AppendLine($"Draft hotkey preview count: {draftCoverage.HotkeyPreviewCount}");
+                tooltip.AppendLine($"Draft invalid hotkeys: {draftCoverage.InvalidHotkeyCount}");
+            }
 
             SetRuntimeSummary(summary, severity, tooltip.ToString());
         }
@@ -2973,8 +3045,38 @@ public partial class MainWindow : Window
 
     private void SetRuntimeSummary(string text, RuntimeSummarySeverity severity, string? tooltip)
     {
+        _runtimeSummaryBaseText = text ?? string.Empty;
+        _runtimeSummaryBaseTooltip = tooltip ?? string.Empty;
+        _runtimeSummaryBaseSeverity = severity;
+        _runtimeSummaryInitialized = true;
+        ApplyRuntimeSummaryOverlay();
+    }
+
+    private void ApplyRuntimeSummaryOverlay()
+    {
+        var hasUnsavedEdits = _hasUnsavedChanges || _hasDraftChanges;
+        var text = _runtimeSummaryBaseText;
+        if (hasUnsavedEdits)
+        {
+            text += " Unsaved edits pending.";
+        }
+
+        var tooltip = _runtimeSummaryBaseTooltip;
+        if (!string.IsNullOrWhiteSpace(tooltip))
+        {
+            tooltip += Environment.NewLine;
+        }
+
+        tooltip += "Unsaved UI edits: " + hasUnsavedEdits;
+
+        var severity = _runtimeSummaryBaseSeverity;
+        if (severity == RuntimeSummarySeverity.Healthy && hasUnsavedEdits)
+        {
+            severity = RuntimeSummarySeverity.Warning;
+        }
+
         RuntimeSummaryText.Text = text;
-        RuntimeSummaryText.ToolTip = string.IsNullOrWhiteSpace(tooltip) ? null : tooltip;
+        RuntimeSummaryText.ToolTip = tooltip;
         RuntimeSummaryText.Foreground = severity switch
         {
             RuntimeSummarySeverity.Healthy => new SolidColorBrush(Color.FromRgb(0x1E, 0x6B, 0x24)),
@@ -2987,6 +3089,10 @@ public partial class MainWindow : Window
     {
         Title = (_hasUnsavedChanges || _hasDraftChanges) ? $"{AppTitle} *" : AppTitle;
         UpdateRuntimeActionState();
+        if (_runtimeSummaryInitialized)
+        {
+            ApplyRuntimeSummaryOverlay();
+        }
     }
 
     private void RunWithoutDirtyTracking(Action action)

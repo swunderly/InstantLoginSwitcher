@@ -166,6 +166,7 @@ On smaller windows, the action button row is horizontally scrollable.
 The bottom runtime summary line shows current-user coverage, listener state, and startup-task presence.
 The runtime summary is color-coded (green = healthy, amber = warning, red = error); hover it for detailed route/task diagnostics.
 When unsaved form edits exist, runtime summary now labels that diagnostics are showing saved-state behavior.
+With unsaved edits, runtime summary also includes a draft preview (enabled profile count, current-user coverage, hotkey preview, invalid draft hotkeys).
 Diagnostics now include validation issues such as invalid hotkeys or missing stored passwords.
 Diagnostics also report the expected startup task name for the current user and whether it exists.
 Diagnostics now include `ExpectedTasksByUser` and `UnexpectedStartupTasks` sections for faster task troubleshooting.
