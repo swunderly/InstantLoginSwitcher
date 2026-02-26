@@ -537,7 +537,7 @@ function New-ListenerTaskName {
     return "$listenerTaskPrefix-$cleanSid"
 }
 
-function New-EncodedSwitchCommand {
+function New-SwitchCommandScript {
     param(
         [Parameter(Mandatory)][string]$ConfigFilePath,
         [Parameter(Mandatory)][string]$HotkeyId
@@ -800,9 +800,7 @@ catch {
 }
 '@
 
-    $script = $template.Replace('__CONFIG_PATH__', $configLiteral).Replace('__HOTKEY_ID__', $hotkeyLiteral)
-    $bytes = [System.Text.Encoding]::Unicode.GetBytes($script)
-    return [System.Convert]::ToBase64String($bytes)
+    return $template.Replace('__CONFIG_PATH__', $configLiteral).Replace('__HOTKEY_ID__', $hotkeyLiteral)
 }
 
 function Write-Utf8NoBomFile {
@@ -829,7 +827,7 @@ function Write-ListenerScript {
     }
 
     $commandEntries = foreach ($hotkey in $sortedHotkeys) {
-        ('    {0}, commandsDir . "\{1}.b64"' -f (ConvertTo-AhkStringLiteral -Value $hotkey.HotkeyId), $hotkey.HotkeyId)
+        ('    {0}, commandsDir . "\{1}.ps1"' -f (ConvertTo-AhkStringLiteral -Value $hotkey.HotkeyId), $hotkey.HotkeyId)
     }
 
     $comboBlock = [string]::Join(",`r`n", $comboEntries)
@@ -959,20 +957,16 @@ RunSwitch(hotkeyId) {
         return
     }
 
-    encodedPath := commandMap[hotkeyId]
-    if !FileExist(encodedPath) {
-        WriteLog("Command file missing: " . encodedPath)
+    scriptPath := commandMap[hotkeyId]
+    if !FileExist(scriptPath) {
+        WriteLog("Command file missing: " . scriptPath)
         return
     }
 
-    encoded := Trim(FileRead(encodedPath, "UTF-8"))
-    if (encoded = "") {
-        WriteLog("Command file empty: " . encodedPath)
+    scriptSize := FileGetSize(scriptPath)
+    if (scriptSize <= 0) {
+        WriteLog("Command file empty: " . scriptPath)
         return
-    }
-
-    if (SubStr(encoded, 1, 1) = Chr(0xFEFF)) {
-        encoded := SubStr(encoded, 2)
     }
 
     switchInProgress := true
@@ -980,13 +974,13 @@ RunSwitch(hotkeyId) {
     WriteLog("Triggering switch for " . hotkeyId)
 
     psExe := A_WinDir . "\System32\WindowsPowerShell\v1.0\powershell.exe"
-    command := '"' . psExe . '" -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -STA -EncodedCommand ' . encoded
+    command := '"' . psExe . '" -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -STA -File "' . scriptPath . '"'
 
     try {
         Run(command, , "Hide")
     }
-    catch {
-        WriteLog("Run failed for " . hotkeyId)
+    catch as err {
+        WriteLog("Run failed for " . hotkeyId . ": " . err.Message)
         ResetSwitchGuard()
     }
 }
@@ -1323,7 +1317,8 @@ $hotkeysArray = @($hotkeys)
 New-Item -Path $installDir -ItemType Directory -Force | Out-Null
 New-Item -Path $commandsDir -ItemType Directory -Force | Out-Null
 
-Get-ChildItem -LiteralPath $commandsDir -File -Filter '*.b64' -ErrorAction SilentlyContinue |
+Get-ChildItem -LiteralPath $commandsDir -File -ErrorAction SilentlyContinue |
+    Where-Object { $_.Extension -in @('.b64', '.ps1') } |
     Remove-Item -Force -ErrorAction SilentlyContinue
 
 $config = [pscustomobject]@{
@@ -1339,13 +1334,13 @@ $config = [pscustomobject]@{
 $config | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $configPath -Encoding UTF8
 
 foreach ($hotkey in $hotkeysArray) {
-    $encodedCommand = New-EncodedSwitchCommand -ConfigFilePath $configPath -HotkeyId $hotkey.HotkeyId
-    $commandPath = Join-Path $commandsDir ("{0}.b64" -f $hotkey.HotkeyId)
-    Write-Utf8NoBomFile -Path $commandPath -Content $encodedCommand
+    $scriptContent = New-SwitchCommandScript -ConfigFilePath $configPath -HotkeyId $hotkey.HotkeyId
+    $commandPath = Join-Path $commandsDir ("{0}.ps1" -f $hotkey.HotkeyId)
+    Write-Utf8NoBomFile -Path $commandPath -Content $scriptContent
 }
 
 foreach ($hotkey in $hotkeysArray) {
-    $commandPath = Join-Path $commandsDir ("{0}.b64" -f $hotkey.HotkeyId)
+    $commandPath = Join-Path $commandsDir ("{0}.ps1" -f $hotkey.HotkeyId)
     if (-not (Test-Path -LiteralPath $commandPath)) {
         throw "Missing command payload file after generation: $commandPath"
     }

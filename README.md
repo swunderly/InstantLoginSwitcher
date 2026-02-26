@@ -61,7 +61,7 @@ Uninstall removes:
 
 - `C:\ProgramData\InstantLoginSwitcher\config.json`
 - `C:\ProgramData\InstantLoginSwitcher\InstantLoginSwitcher.ahk`
-- `C:\ProgramData\InstantLoginSwitcher\commands\*.b64`
+- `C:\ProgramData\InstantLoginSwitcher\commands\*.ps1`
 - `C:\ProgramData\InstantLoginSwitcher\switch.log`
 
 ## Troubleshooting
