@@ -941,7 +941,7 @@ WriteLog(message) {
 
     try {
         timestamp := FormatTime(A_Now, "yyyy-MM-dd HH:mm:ss")
-        FileAppend(timestamp . " " . message . "`r`n", logPath, "UTF-8")
+        FileAppend(timestamp . " " . message . "``r``n", logPath, "UTF-8")
     }
     catch {
     }
