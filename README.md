@@ -116,6 +116,7 @@ If one hotkey maps to multiple valid targets for the current user, the app shows
 
 `Save And Apply` automatically updates per-user startup tasks so listener mode starts at logon.
 If your signed-in account is not part of any enabled profile, the app now tells you and does not attempt to start a listener for that account.
+When current user is in enabled profiles, `Save And Apply` and `Repair Startup Tasks` now attempt to confirm listener runtime and show a warning if not confirmed.
 
 Listener mode runs the same executable with:
 

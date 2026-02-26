@@ -306,12 +306,7 @@ public partial class MainWindow : Window
             _configService.Save(configToSave);
             configSaved = true;
 
-            var requiredUsers = configToSave.Profiles
-                .Where(profile => profile.Enabled)
-                .SelectMany(profile => new[] { profile.UserA, profile.UserB })
-                .Where(user => !string.IsNullOrWhiteSpace(user))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
+            var requiredUsers = GetRequiredUsersFromEnabledProfiles(configToSave.Profiles.Where(profile => profile.Enabled));
 
             var currentExecutable = Process.GetCurrentProcess().MainModule?.FileName;
             if (string.IsNullOrWhiteSpace(currentExecutable))
@@ -322,6 +317,7 @@ public partial class MainWindow : Window
             _taskSchedulerService.SyncListenerTasks(requiredUsers, currentExecutable);
             var currentUserIncluded = requiredUsers.Any(user =>
                 user.Equals(Environment.UserName, StringComparison.OrdinalIgnoreCase));
+            var currentUserListenerRunning = false;
             if (requiredUsers.Count == 0)
             {
                 _switchExecutor.DisableAutoLogon();
@@ -329,6 +325,7 @@ public partial class MainWindow : Window
             else if (currentUserIncluded)
             {
                 _taskSchedulerService.StartListenerForUser(Environment.UserName);
+                currentUserListenerRunning = WaitForListenerMutex(Environment.UserName, timeoutMs: 2500);
             }
 
             _loadedConfig = configToSave;
@@ -340,20 +337,28 @@ public partial class MainWindow : Window
             var saveStatus = requiredUsers.Count == 0
                 ? "Configuration saved. No profiles enabled, startup tasks removed."
                 : currentUserIncluded
-                    ? "Configuration saved and startup tasks updated."
+                    ? currentUserListenerRunning
+                        ? "Configuration saved, startup tasks updated, and listener is running."
+                        : "Configuration saved and startup tasks updated, but listener runtime was not confirmed yet."
                     : "Configuration saved. Current user is not in any enabled profile, so no listener was started for this account.";
             SetStatus(saveStatus);
 
+            var messageImage =
+                currentUserIncluded && !currentUserListenerRunning
+                    ? MessageBoxImage.Warning
+                    : MessageBoxImage.Information;
             MessageBox.Show(
                 this,
                 requiredUsers.Count == 0
                     ? "Saved successfully. No active profiles remain, and startup tasks were removed."
                     : currentUserIncluded
-                        ? "Saved successfully. Hotkey profiles are now active for configured users."
+                        ? currentUserListenerRunning
+                            ? "Saved successfully. Hotkey profiles are now active for configured users."
+                            : "Saved successfully, but listener runtime was not confirmed yet. Click 'Start Listener For Current User' to test immediately."
                         : "Saved successfully. Startup tasks were updated, but this signed-in account is not part of an enabled profile.",
                 "InstantLoginSwitcher",
                 MessageBoxButton.OK,
-                MessageBoxImage.Information);
+                messageImage);
         }
         catch (Exception exception)
         {
@@ -535,7 +540,7 @@ public partial class MainWindow : Window
                 throw new InvalidOperationException("Could not resolve executable path.");
             }
 
-            var listenerLogBaselineUtc = GetFileLastWriteTimeUtcSafe(InstallPaths.ListenerLogPath);
+            var listenerLogBaseline = CaptureListenerLogBaseline(InstallPaths.ListenerLogPath);
             _taskSchedulerService.StartListenerForUser(currentUser);
 
             Process.Start(new ProcessStartInfo
@@ -547,7 +552,8 @@ public partial class MainWindow : Window
                 CreateNoWindow = true
             });
 
-            var startupConfirmed = WaitForListenerStartupConfirmation(listenerLogBaselineUtc, timeoutMs: 4500);
+            var startupConfirmed = WaitForListenerStartupConfirmation(listenerLogBaseline, timeoutMs: 4500);
+            var runtimeConfirmed = startupConfirmed || WaitForListenerMutex(currentUser, timeoutMs: 1200);
             if (startupConfirmed)
             {
                 SetStatus("Listener startup confirmed. Test hotkeys now.");
@@ -558,7 +564,7 @@ public partial class MainWindow : Window
                     MessageBoxButton.OK,
                     MessageBoxImage.Information);
             }
-            else if (IsListenerMutexPresentForUser(currentUser))
+            else if (runtimeConfirmed)
             {
                 SetStatus("Listener appears to be running, but log confirmation was delayed.");
                 MessageBox.Show(
@@ -1597,7 +1603,10 @@ public partial class MainWindow : Window
         if (currentUserIncluded)
         {
             _taskSchedulerService.StartListenerForUser(Environment.UserName);
-            SetStatus("Startup tasks repaired for configured profiles.");
+            var listenerRunning = WaitForListenerMutex(Environment.UserName, timeoutMs: 2500);
+            SetStatus(listenerRunning
+                ? "Startup tasks repaired for configured profiles."
+                : "Startup tasks repaired, but listener runtime was not confirmed yet. Click 'Start Listener For Current User'.");
             return true;
         }
 
@@ -1689,24 +1698,42 @@ public partial class MainWindow : Window
         return filePath;
     }
 
-    private static DateTime GetFileLastWriteTimeUtcSafe(string path)
+    private static ListenerLogBaseline CaptureListenerLogBaseline(string path)
     {
         try
         {
-            return File.Exists(path) ? File.GetLastWriteTimeUtc(path) : DateTime.MinValue;
+            if (!File.Exists(path))
+            {
+                return new ListenerLogBaseline
+                {
+                    LastWriteUtc = DateTime.MinValue,
+                    FileSizeBytes = -1
+                };
+            }
+
+            var info = new FileInfo(path);
+            return new ListenerLogBaseline
+            {
+                LastWriteUtc = info.LastWriteTimeUtc,
+                FileSizeBytes = info.Length
+            };
         }
         catch
         {
-            return DateTime.MinValue;
+            return new ListenerLogBaseline
+            {
+                LastWriteUtc = DateTime.MinValue,
+                FileSizeBytes = -1
+            };
         }
     }
 
-    private static bool WaitForListenerStartupConfirmation(DateTime baselineUtc, int timeoutMs)
+    private static bool WaitForListenerStartupConfirmation(ListenerLogBaseline baseline, int timeoutMs)
     {
         var deadline = DateTime.UtcNow.AddMilliseconds(Math.Max(timeoutMs, 500));
         while (DateTime.UtcNow < deadline)
         {
-            if (HasListenerStartupMarkerSince(baselineUtc))
+            if (HasListenerStartupMarkerSince(baseline))
             {
                 return true;
             }
@@ -1714,10 +1741,10 @@ public partial class MainWindow : Window
             Thread.Sleep(200);
         }
 
-        return HasListenerStartupMarkerSince(baselineUtc);
+        return HasListenerStartupMarkerSince(baseline);
     }
 
-    private static bool HasListenerStartupMarkerSince(DateTime baselineUtc)
+    private static bool HasListenerStartupMarkerSince(ListenerLogBaseline baseline)
     {
         try
         {
@@ -1726,8 +1753,12 @@ public partial class MainWindow : Window
                 return false;
             }
 
-            var lastWriteUtc = File.GetLastWriteTimeUtc(InstallPaths.ListenerLogPath);
-            if (lastWriteUtc < baselineUtc)
+            var info = new FileInfo(InstallPaths.ListenerLogPath);
+            var fileChangedSinceBaseline =
+                baseline.FileSizeBytes < 0 ||
+                info.LastWriteTimeUtc > baseline.LastWriteUtc ||
+                info.Length != baseline.FileSizeBytes;
+            if (!fileChangedSinceBaseline)
             {
                 return false;
             }
@@ -1777,9 +1808,31 @@ public partial class MainWindow : Window
         }
     }
 
+    private static bool WaitForListenerMutex(string userName, int timeoutMs)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(Math.Max(timeoutMs, 500));
+        while (DateTime.UtcNow < deadline)
+        {
+            if (IsListenerMutexPresentForUser(userName))
+            {
+                return true;
+            }
+
+            Thread.Sleep(150);
+        }
+
+        return IsListenerMutexPresentForUser(userName);
+    }
+
     private static string GetListenerMutexName(string userName)
     {
         return $@"Local\InstantLoginSwitcher.Listener.{userName}";
+    }
+
+    private readonly struct ListenerLogBaseline
+    {
+        public DateTime LastWriteUtc { get; init; }
+        public long FileSizeBytes { get; init; }
     }
 
     private string BuildDiagnosticsSummary()
