@@ -14,6 +14,7 @@ namespace InstantLoginSwitcher.App;
 
 public partial class MainWindow : Window
 {
+    private const string AppTitle = "InstantLoginSwitcher";
     private const string DefaultHotkey = "Numpad4+Numpad6";
 
     private readonly ConfigService _configService;
@@ -98,7 +99,7 @@ public partial class MainWindow : Window
                         Name = profile.Name,
                         UserA = profile.UserA,
                         UserB = profile.UserB,
-                        Hotkey = profile.Hotkey,
+                        Hotkey = TryCanonicalHotkey(profile.Hotkey),
                         Enabled = profile.Enabled
                     });
                 }
@@ -108,6 +109,7 @@ public partial class MainWindow : Window
 
             _hasUnsavedChanges = false;
             _hasDraftChanges = false;
+            UpdateDirtyUiState();
             UpdateFormValidationState();
             UpdateSelectionActionState();
             SetStatus("Configuration loaded.");
@@ -187,6 +189,7 @@ public partial class MainWindow : Window
             RefreshProfileGrid();
             _hasUnsavedChanges = true;
             _hasDraftChanges = false;
+            UpdateDirtyUiState();
             SetStatus("Profile updated. Remember to click Save And Apply.");
         }
         else
@@ -203,6 +206,7 @@ public partial class MainWindow : Window
 
             _hasUnsavedChanges = true;
             _hasDraftChanges = false;
+            UpdateDirtyUiState();
             SetStatus("Profile added. Remember to click Save And Apply.");
         }
 
@@ -231,6 +235,7 @@ public partial class MainWindow : Window
         _profiles.Remove(selected);
         ClearFormInternal();
         _hasUnsavedChanges = true;
+        UpdateDirtyUiState();
         SetStatus("Profile removed. Click Save And Apply to persist.");
     }
 
@@ -291,10 +296,13 @@ public partial class MainWindow : Window
             return;
         }
 
+        SwitcherConfig? configToSave = null;
+        var configSaved = false;
         try
         {
-            var configToSave = BuildConfigFromUi();
+            configToSave = BuildConfigFromUi();
             _configService.Save(configToSave);
+            configSaved = true;
 
             var requiredUsers = configToSave.Profiles
                 .Where(profile => profile.Enabled)
@@ -324,6 +332,7 @@ public partial class MainWindow : Window
             _loadedConfig = configToSave;
             _hasUnsavedChanges = false;
             _hasDraftChanges = false;
+            UpdateDirtyUiState();
 
             var saveStatus = requiredUsers.Count == 0
                 ? "Configuration saved. No profiles enabled, startup tasks removed."
@@ -345,12 +354,29 @@ public partial class MainWindow : Window
         }
         catch (Exception exception)
         {
-            MessageBox.Show(
-                this,
-                $"Save failed: {exception.Message}",
-                "InstantLoginSwitcher",
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
+            if (configSaved && configToSave is not null)
+            {
+                _loadedConfig = configToSave;
+                _hasUnsavedChanges = false;
+                _hasDraftChanges = false;
+                UpdateDirtyUiState();
+                SetStatus("Configuration saved, but startup task update failed. Use Repair Startup Tasks.");
+                MessageBox.Show(
+                    this,
+                    $"Configuration was saved, but startup task update failed.\n\n{exception.Message}\n\nUse Repair Startup Tasks to retry.",
+                    "InstantLoginSwitcher",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
+            else
+            {
+                MessageBox.Show(
+                    this,
+                    $"Save failed: {exception.Message}",
+                    "InstantLoginSwitcher",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
         }
     }
 
@@ -515,6 +541,7 @@ public partial class MainWindow : Window
         });
 
         _hasDraftChanges = false;
+        UpdateDirtyUiState();
         AddOrUpdateButton.Content = "Update Profile";
         UpdateFormValidationState();
         UpdateSelectionActionState();
@@ -671,6 +698,7 @@ public partial class MainWindow : Window
         });
 
         _hasDraftChanges = false;
+        UpdateDirtyUiState();
         UpdateFormValidationState();
         UpdateSelectionActionState();
     }
@@ -855,6 +883,7 @@ public partial class MainWindow : Window
         }
 
         _hasDraftChanges = true;
+        UpdateDirtyUiState();
         UpdateFormValidationState();
         if (!_hasUnsavedChanges)
         {
@@ -1228,6 +1257,11 @@ public partial class MainWindow : Window
         UpdatePasswordsButton.ToolTip = hasSelection
             ? "Re-enter passwords for both users in the selected profile."
             : "Select a profile row first.";
+    }
+
+    private void UpdateDirtyUiState()
+    {
+        Title = (_hasUnsavedChanges || _hasDraftChanges) ? $"{AppTitle} *" : AppTitle;
     }
 
     private void RunWithoutDirtyTracking(Action action)

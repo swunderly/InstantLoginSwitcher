@@ -72,6 +72,7 @@ Hotkey rules:
 - Generic modifiers (`Ctrl`, `Alt`, `Shift`, `Win`) match both left and right keys.
 - Examples: `Ctrl+Alt+S`, `Numpad4+Numpad6`, `Shift+F12`.
 - Duplicate profile checks use canonical hotkeys, so `Alt+Ctrl+S` and `Ctrl+Alt+S` are treated as the same combo.
+- Existing stored hotkeys are shown in canonical format when reloaded into the editor.
 
 ## Three Users Example
 
@@ -104,6 +105,7 @@ If profile edits are not saved yet, the app now asks you to save first before up
 
 If you close the app with unsaved profile edits, the app now prompts before closing.
 If you click `Reload` with unsaved edits, the app also prompts before discarding changes.
+The window title shows `*` when there are unsaved edits.
 
 ## Multi-Target Chooser UI
 
@@ -142,6 +144,8 @@ If a hotkey appears to do nothing:
 3. Click `Repair Startup Tasks`.
 4. Sign out and sign back in.
 5. Check `listener.log` for load/trigger errors.
+
+If `Save And Apply` reports startup-task failure, your profile changes are still saved; use `Repair Startup Tasks` to retry task registration.
 
 ## Publish Build
 
