@@ -446,63 +446,18 @@ public partial class MainWindow : Window
 
     private void RepairStartupTasks_Click(object sender, RoutedEventArgs e)
     {
-        if (_hasUnsavedChanges || _hasDraftChanges)
+        RunRepairStartupTasksWithDialogs();
+    }
+
+    private void RepairAndCheckSetup_Click(object sender, RoutedEventArgs e)
+    {
+        if (!RunRepairStartupTasksWithDialogs())
         {
-            var decision = MessageBox.Show(
-                this,
-                "You have unsaved profile edits. Repair will use the current profiles shown in this window, not necessarily what is already saved to disk. Continue?",
-                "InstantLoginSwitcher",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Warning);
-            if (decision != MessageBoxResult.Yes)
-            {
-                return;
-            }
+            return;
         }
 
-        try
-        {
-            var requiredUsers = _profiles
-                .Where(profile => profile.Enabled)
-                .SelectMany(profile => new[] { profile.UserA, profile.UserB })
-                .Select(user => user?.Trim() ?? string.Empty)
-                .Where(user => !string.IsNullOrWhiteSpace(user))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            var currentExecutable = Process.GetCurrentProcess().MainModule?.FileName;
-            if (string.IsNullOrWhiteSpace(currentExecutable))
-            {
-                throw new InvalidOperationException("Could not resolve executable path.");
-            }
-
-            _taskSchedulerService.SyncListenerTasks(requiredUsers, currentExecutable);
-            var currentUserIncluded = requiredUsers.Any(user =>
-                user.Equals(Environment.UserName, StringComparison.OrdinalIgnoreCase));
-            if (requiredUsers.Count == 0)
-            {
-                _switchExecutor.DisableAutoLogon();
-                SetStatus("No active profiles found. Startup tasks removed and auto-logon values cleared.");
-            }
-            else if (currentUserIncluded)
-            {
-                _taskSchedulerService.StartListenerForUser(Environment.UserName);
-                SetStatus("Startup tasks repaired for configured profiles.");
-            }
-            else
-            {
-                SetStatus("Startup tasks repaired. Current user is not in an enabled profile, so listener was not started for this account.");
-            }
-        }
-        catch (Exception exception)
-        {
-            MessageBox.Show(
-                this,
-                $"Task repair failed: {exception.Message}",
-                "InstantLoginSwitcher",
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
-        }
+        SetStatus("Startup tasks repaired. Running setup check...");
+        CheckSetup_Click(sender, e);
     }
 
     private void ClearForm_Click(object sender, RoutedEventArgs e)
@@ -973,7 +928,19 @@ public partial class MainWindow : Window
             }
 
             var mode = _editingProfileId.HasValue ? "update" : "add";
-            return (true, $"Ready to {mode}. Hotkey will be saved as: {parsed.CanonicalText}");
+            var chooserHint = BuildChooserHintForCandidate(
+                firstUser.UserName,
+                secondUser.UserName,
+                parsed.CanonicalText,
+                _editingProfileId,
+                EnabledCheck.IsChecked ?? true);
+            var message = $"Ready to {mode}. Hotkey will be saved as: {parsed.CanonicalText}";
+            if (!string.IsNullOrWhiteSpace(chooserHint))
+            {
+                message += " " + chooserHint;
+            }
+
+            return (true, message);
         }
         catch (Exception exception)
         {
@@ -1178,7 +1145,7 @@ public partial class MainWindow : Window
             if (warnings.Any(warning => warning.Contains("startup listener task", StringComparison.OrdinalIgnoreCase)))
             {
                 builder.AppendLine();
-                builder.AppendLine("Tip: Click 'Repair Startup Tasks' and then run 'Check Setup' again.");
+                builder.AppendLine("Tip: Click 'Repair + Check Setup' to fix tasks and verify again.");
             }
 
             SetStatus("Setup check found issues. Review the details dialog.");
@@ -1225,6 +1192,39 @@ public partial class MainWindow : Window
         }
     }
 
+    private void SaveDiagnosticsToFile_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            InstallPaths.EnsureRootDirectory();
+            var diagnostics = BuildDiagnosticsSummary();
+            var fileName = $"diagnostics-{DateTime.UtcNow:yyyyMMdd-HHmmss}.txt";
+            var filePath = Path.Combine(InstallPaths.RootDirectory, fileName);
+            InstallPaths.WriteUtf8NoBom(filePath, diagnostics + Environment.NewLine);
+
+            SetStatus($"Diagnostics saved to {filePath}");
+            var openFolder = MessageBox.Show(
+                this,
+                $"Diagnostics saved:\n{filePath}\n\nOpen data folder now?",
+                "InstantLoginSwitcher",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Information);
+            if (openFolder == MessageBoxResult.Yes)
+            {
+                OpenPath(InstallPaths.RootDirectory, isLogFile: false);
+            }
+        }
+        catch (Exception exception)
+        {
+            MessageBox.Show(
+                this,
+                $"Failed to save diagnostics: {exception.Message}",
+                "InstantLoginSwitcher",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+    }
+
     private bool HasDuplicateProfile(string userA, string userB, string hotkey, Guid? excludedId)
     {
         var candidateHotkeyCanonical = TryCanonicalHotkey(hotkey);
@@ -1248,6 +1248,168 @@ public partial class MainWindow : Window
         }
 
         return false;
+    }
+
+    private string BuildChooserHintForCandidate(
+        string userA,
+        string userB,
+        string canonicalHotkey,
+        Guid? excludedId,
+        bool candidateEnabled)
+    {
+        if (!candidateEnabled)
+        {
+            return string.Empty;
+        }
+
+        var normalizedUserA = userA?.Trim() ?? string.Empty;
+        var normalizedUserB = userB?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(normalizedUserA) ||
+            string.IsNullOrWhiteSpace(normalizedUserB) ||
+            normalizedUserA.Equals(normalizedUserB, StringComparison.OrdinalIgnoreCase))
+        {
+            return string.Empty;
+        }
+
+        var targetsByUser = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+
+        static void AddTarget(
+            Dictionary<string, HashSet<string>> map,
+            string sourceUser,
+            string targetUser)
+        {
+            if (!map.TryGetValue(sourceUser, out var targets))
+            {
+                targets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                map[sourceUser] = targets;
+            }
+
+            targets.Add(targetUser);
+        }
+
+        foreach (var profile in _profiles)
+        {
+            if (!profile.Enabled)
+            {
+                continue;
+            }
+
+            if (excludedId.HasValue && profile.Id == excludedId.Value)
+            {
+                continue;
+            }
+
+            var profileHotkey = TryCanonicalHotkey(profile.Hotkey);
+            if (!profileHotkey.Equals(canonicalHotkey, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var profileUserA = profile.UserA?.Trim() ?? string.Empty;
+            var profileUserB = profile.UserB?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(profileUserA) ||
+                string.IsNullOrWhiteSpace(profileUserB) ||
+                profileUserA.Equals(profileUserB, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            AddTarget(targetsByUser, profileUserA, profileUserB);
+            AddTarget(targetsByUser, profileUserB, profileUserA);
+        }
+
+        AddTarget(targetsByUser, normalizedUserA, normalizedUserB);
+        AddTarget(targetsByUser, normalizedUserB, normalizedUserA);
+
+        var impactedUsers = new List<string>();
+        foreach (var user in new[] { normalizedUserA, normalizedUserB }.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (!targetsByUser.TryGetValue(user, out var targets))
+            {
+                continue;
+            }
+
+            if (targets.Count > 1)
+            {
+                impactedUsers.Add($"{user} ({targets.Count} targets)");
+            }
+        }
+
+        if (impactedUsers.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        return "Chooser UI will appear for " + string.Join(", ", impactedUsers) + " on this hotkey.";
+    }
+
+    private bool RunRepairStartupTasksWithDialogs()
+    {
+        try
+        {
+            return RunRepairStartupTasksCore(promptWhenUnsavedEdits: true);
+        }
+        catch (Exception exception)
+        {
+            MessageBox.Show(
+                this,
+                $"Task repair failed: {exception.Message}",
+                "InstantLoginSwitcher",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+            return false;
+        }
+    }
+
+    private bool RunRepairStartupTasksCore(bool promptWhenUnsavedEdits)
+    {
+        if (promptWhenUnsavedEdits && (_hasUnsavedChanges || _hasDraftChanges))
+        {
+            var decision = MessageBox.Show(
+                this,
+                "You have unsaved profile edits. Repair will use the current profiles shown in this window, not necessarily what is already saved to disk. Continue?",
+                "InstantLoginSwitcher",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+            if (decision != MessageBoxResult.Yes)
+            {
+                return false;
+            }
+        }
+
+        var requiredUsers = _profiles
+            .Where(profile => profile.Enabled)
+            .SelectMany(profile => new[] { profile.UserA, profile.UserB })
+            .Select(user => user?.Trim() ?? string.Empty)
+            .Where(user => !string.IsNullOrWhiteSpace(user))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var currentExecutable = Process.GetCurrentProcess().MainModule?.FileName;
+        if (string.IsNullOrWhiteSpace(currentExecutable))
+        {
+            throw new InvalidOperationException("Could not resolve executable path.");
+        }
+
+        _taskSchedulerService.SyncListenerTasks(requiredUsers, currentExecutable);
+        var currentUserIncluded = requiredUsers.Any(user =>
+            user.Equals(Environment.UserName, StringComparison.OrdinalIgnoreCase));
+        if (requiredUsers.Count == 0)
+        {
+            _switchExecutor.DisableAutoLogon();
+            SetStatus("No active profiles found. Startup tasks removed and auto-logon values cleared.");
+            return true;
+        }
+
+        if (currentUserIncluded)
+        {
+            _taskSchedulerService.StartListenerForUser(Environment.UserName);
+            SetStatus("Startup tasks repaired for configured profiles.");
+            return true;
+        }
+
+        SetStatus("Startup tasks repaired. Current user is not in an enabled profile, so listener was not started for this account.");
+        return true;
     }
 
     private string TryCanonicalHotkey(string hotkeyText)

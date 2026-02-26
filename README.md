@@ -53,6 +53,7 @@ Tip: press `Ctrl+S` in the app to run `Save And Apply`.
 Tip: press `Enter` while focused in profile inputs to run `Add Profile`/`Update Profile` when the form is valid.
 Tip: press `Esc` while focused in profile inputs to clear the form quickly.
 Tip: if your PC has exactly two enabled admin accounts, selecting one user auto-fills the other box.
+When a new profile creates multiple targets for the same user on the same hotkey, the form now tells you that chooser UI mode will be used.
 Hotkeys are normalized automatically when the hotkey field loses focus.
 Profile-only actions (`Remove Selected Hotkey`, `Update Passwords`) stay disabled until you select a profile row.
 When disabled, those buttons now show a tooltip explaining what is needed.
@@ -135,8 +136,10 @@ Use the built-in buttons in the main window:
 - `Restore Backup Config`
 - `Open Listener Log`
 - `Open Switch Log`
+- `Repair + Check Setup` (repairs startup tasks and immediately runs setup validation)
 - `Check Setup` (flags missing credentials, invalid/duplicate enabled profiles, missing startup tasks per enabled user, and stale old tasks)
 - `Copy Diagnostics` (copies profile/task summary plus recent log tails to clipboard)
+- `Save Diagnostics To File` (writes a timestamped diagnostics text file into `C:\ProgramData\InstantLoginSwitcher`)
 
 Runtime files are in `C:\ProgramData\InstantLoginSwitcher`.
 On smaller windows, the action button row is horizontally scrollable.
@@ -151,11 +154,11 @@ If a hotkey appears to do nothing:
 
 1. Click `Save And Apply`.
 2. Confirm the signed-in user is included in at least one enabled profile.
-3. Click `Repair Startup Tasks`.
+3. Click `Repair + Check Setup`.
 4. Sign out and sign back in.
-5. Check `listener.log` for load/trigger errors.
+5. Open `listener.log` and `switch.log` (or use `Save Diagnostics To File`) and review the latest entries.
 
-If `Save And Apply` reports startup-task failure, your profile changes are still saved; use `Repair Startup Tasks` to retry task registration.
+If `Save And Apply` reports startup-task failure, your profile changes are still saved; use `Repair Startup Tasks` or `Repair + Check Setup` to retry task registration.
 
 ## Publish Build
 

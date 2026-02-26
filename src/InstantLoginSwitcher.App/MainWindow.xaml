@@ -104,6 +104,7 @@
                     <Button Height="34" MinWidth="130" Margin="0,0,8,0" Content="Clear Form" Click="ClearForm_Click" />
                     <Button Height="34" MinWidth="100" Margin="0,0,8,0" Content="Reload" Click="Reload_Click" />
                     <Button Height="34" MinWidth="170" Margin="0,0,8,0" Content="Repair Startup Tasks" Click="RepairStartupTasks_Click" />
+                    <Button Height="34" MinWidth="190" Margin="0,0,8,0" Content="Repair + Check Setup" Click="RepairAndCheckSetup_Click" />
                     <Button Height="34" MinWidth="150" Margin="0,0,8,0" Content="Open Data Folder" Click="OpenDataFolder_Click" />
                     <Button x:Name="OpenConfigButton" Height="34" MinWidth="150" Margin="0,0,8,0" Content="Open Config File" Click="OpenConfigFile_Click" />
                     <Button x:Name="RestoreBackupButton" Height="34" MinWidth="190" Margin="0,0,8,0" Content="Restore Backup Config" Click="RestoreBackupConfig_Click" />
@@ -111,6 +112,7 @@
                     <Button Height="34" MinWidth="150" Margin="0,0,8,0" Content="Open Switch Log" Click="OpenSwitchLog_Click" />
                     <Button Height="34" MinWidth="140" Margin="0,0,8,0" Content="Check Setup" Click="CheckSetup_Click" />
                     <Button Height="34" MinWidth="210" Margin="0,0,8,0" Content="Copy Diagnostics" Click="CopyDiagnostics_Click" />
+                    <Button Height="34" MinWidth="220" Margin="0,0,8,0" Content="Save Diagnostics To File" Click="SaveDiagnosticsToFile_Click" />
                     <Button Height="34" MinWidth="210" Margin="0,0,8,0" Content="Remove All Startup Tasks" Click="RemoveAllTasks_Click" />
                 </StackPanel>
             </ScrollViewer>
