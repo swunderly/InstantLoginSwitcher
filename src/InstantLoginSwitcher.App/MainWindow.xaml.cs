@@ -522,6 +522,7 @@ public partial class MainWindow : Window
                 throw new InvalidOperationException("Could not resolve executable path.");
             }
 
+            var listenerLogBaselineUtc = GetFileLastWriteTimeUtcSafe(InstallPaths.ListenerLogPath);
             _taskSchedulerService.StartListenerForUser(currentUser);
 
             Process.Start(new ProcessStartInfo
@@ -533,13 +534,31 @@ public partial class MainWindow : Window
                 CreateNoWindow = true
             });
 
-            SetStatus("Listener start requested for current user. Wait a second, then test hotkeys.");
-            MessageBox.Show(
-                this,
-                "Listener start requested.\n\nIf it was already running, this is safe and no duplicate listener will stay active.\n\nIf hotkeys still do nothing, run Check Setup or Save Diagnostics To File.",
-                "InstantLoginSwitcher",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
+            var startupConfirmed = WaitForListenerStartupConfirmation(listenerLogBaselineUtc, timeoutMs: 4500);
+            if (startupConfirmed)
+            {
+                SetStatus("Listener startup confirmed. Test hotkeys now.");
+                MessageBox.Show(
+                    this,
+                    "Listener startup confirmed.\n\nIf hotkeys still do nothing, run Check Setup or Save Diagnostics To File.",
+                    "InstantLoginSwitcher",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+            else
+            {
+                SetStatus("Listener start requested, but startup confirmation was not detected yet.");
+                var openLog = MessageBox.Show(
+                    this,
+                    "Listener start was requested, but no startup confirmation was detected in listener.log yet.\n\nOpen listener.log now?",
+                    "InstantLoginSwitcher",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning);
+                if (openLog == MessageBoxResult.Yes)
+                {
+                    OpenPath(InstallPaths.ListenerLogPath, isLogFile: true);
+                }
+            }
         }
         catch (Exception exception)
         {
@@ -1130,6 +1149,10 @@ public partial class MainWindow : Window
             var config = _configService.Load();
             var issues = new List<string>(GetConfigValidationIssues(config));
             var warnings = new List<string>();
+            if (_hasUnsavedChanges || _hasDraftChanges)
+            {
+                warnings.Add("Unsaved UI edits are present. Setup check reads saved config until you click Save And Apply.");
+            }
 
             if (config.Profiles.Count == 0)
             {
@@ -1253,6 +1276,11 @@ public partial class MainWindow : Window
             if (warnings.Any(warning => warning.Contains("Current user's startup listener task was not found.", StringComparison.OrdinalIgnoreCase)))
             {
                 builder.AppendLine("Tip: Click 'Start Listener For Current User' to test hotkeys immediately without signing out.");
+            }
+
+            if (warnings.Any(warning => warning.Contains("Unsaved UI edits are present.", StringComparison.OrdinalIgnoreCase)))
+            {
+                builder.AppendLine("Tip: Click Save And Apply, then run Check Setup again.");
             }
 
             SetStatus("Setup check found issues. Review the details dialog.");
@@ -1629,6 +1657,70 @@ public partial class MainWindow : Window
         return filePath;
     }
 
+    private static DateTime GetFileLastWriteTimeUtcSafe(string path)
+    {
+        try
+        {
+            return File.Exists(path) ? File.GetLastWriteTimeUtc(path) : DateTime.MinValue;
+        }
+        catch
+        {
+            return DateTime.MinValue;
+        }
+    }
+
+    private static bool WaitForListenerStartupConfirmation(DateTime baselineUtc, int timeoutMs)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(Math.Max(timeoutMs, 500));
+        while (DateTime.UtcNow < deadline)
+        {
+            if (HasListenerStartupMarkerSince(baselineUtc))
+            {
+                return true;
+            }
+
+            Thread.Sleep(200);
+        }
+
+        return HasListenerStartupMarkerSince(baselineUtc);
+    }
+
+    private static bool HasListenerStartupMarkerSince(DateTime baselineUtc)
+    {
+        try
+        {
+            if (!File.Exists(InstallPaths.ListenerLogPath))
+            {
+                return false;
+            }
+
+            var lastWriteUtc = File.GetLastWriteTimeUtc(InstallPaths.ListenerLogPath);
+            if (lastWriteUtc < baselineUtc)
+            {
+                return false;
+            }
+
+            const int tailSize = 120;
+            var tail = new Queue<string>(tailSize);
+            foreach (var line in File.ReadLines(InstallPaths.ListenerLogPath))
+            {
+                if (tail.Count == tailSize)
+                {
+                    tail.Dequeue();
+                }
+
+                tail.Enqueue(line);
+            }
+
+            return tail.Any(line =>
+                line.Contains("Listener started. combos=", StringComparison.OrdinalIgnoreCase));
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private string BuildDiagnosticsSummary()
     {
         InstallPaths.EnsureRootDirectory();
@@ -1707,6 +1799,8 @@ public partial class MainWindow : Window
         builder.AppendLine($"UTC: {DateTime.UtcNow:o}");
         builder.AppendLine($"Machine: {Environment.MachineName}");
         builder.AppendLine($"CurrentUser: {Environment.UserName}");
+        builder.AppendLine($"UiUnsavedProfileChanges: {_hasUnsavedChanges}");
+        builder.AppendLine($"UiUnsavedDraftChanges: {_hasDraftChanges}");
         builder.AppendLine($"{InstallPaths.RootOverrideEnvironmentVariable}: {Environment.GetEnvironmentVariable(InstallPaths.RootOverrideEnvironmentVariable) ?? "(not set)"}");
         builder.AppendLine($"DataFolder: {InstallPaths.RootDirectory}");
         builder.AppendLine($"ConfigPath: {InstallPaths.ConfigPath}");

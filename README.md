@@ -143,6 +143,9 @@ Use the built-in buttons in the main window:
 - `Copy Diagnostics` (copies profile/task summary plus recent log tails to clipboard)
 - `Save Diagnostics To File` (writes a timestamped diagnostics text file into `C:\ProgramData\InstantLoginSwitcher`)
 
+`Start Listener For Current User` now waits briefly for startup confirmation in `listener.log` and warns if confirmation is not detected.
+`Check Setup` warns when unsaved UI edits are present because it validates the saved config on disk.
+
 Runtime files are in `C:\ProgramData\InstantLoginSwitcher`.
 On smaller windows, the action button row is horizontally scrollable.
 Diagnostics now include validation issues such as invalid hotkeys or missing stored passwords.
@@ -152,6 +155,7 @@ Diagnostics include chooser-route summaries so you can see where one hotkey open
 If clipboard copy fails, `Copy Diagnostics` now falls back to saving a diagnostics file automatically.
 Diagnostics include an internal errors section if any data source (for example task query) fails.
 Diagnostics include config/backup file existence and last-write timestamps.
+Diagnostics include whether unsaved UI edits were present when the report was generated.
 `Restore Backup Config` is enabled only when a backup file exists.
 
 If a hotkey appears to do nothing:
