@@ -451,13 +451,105 @@ public partial class MainWindow : Window
 
     private void RepairAndCheckSetup_Click(object sender, RoutedEventArgs e)
     {
+        var hadUnsavedUiEdits = _hasUnsavedChanges || _hasDraftChanges;
         if (!RunRepairStartupTasksWithDialogs())
         {
             return;
         }
 
-        SetStatus("Startup tasks repaired. Running setup check...");
+        if (hadUnsavedUiEdits)
+        {
+            SetStatus("Startup tasks repaired. Running setup check against saved config; click Save And Apply to align both.");
+        }
+        else
+        {
+            SetStatus("Startup tasks repaired. Running setup check...");
+        }
+
         CheckSetup_Click(sender, e);
+    }
+
+    private void StartListenerForCurrentUser_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (_hasUnsavedChanges || _hasDraftChanges)
+            {
+                var unsavedDecision = MessageBox.Show(
+                    this,
+                    "You have unsaved edits. Start Listener uses the saved config on disk.\n\nContinue anyway?",
+                    "InstantLoginSwitcher",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning);
+                if (unsavedDecision != MessageBoxResult.Yes)
+                {
+                    return;
+                }
+            }
+
+            var config = _configService.Load();
+            var enabledProfiles = config.Profiles.Where(profile => profile.Enabled).ToList();
+            if (enabledProfiles.Count == 0)
+            {
+                MessageBox.Show(
+                    this,
+                    "No enabled profiles are configured. Add or enable at least one profile, then click Save And Apply.",
+                    "InstantLoginSwitcher",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            var requiredUsers = GetRequiredUsersFromEnabledProfiles(enabledProfiles);
+            var currentUser = Environment.UserName;
+            if (!requiredUsers.Any(user => user.Equals(currentUser, StringComparison.OrdinalIgnoreCase)))
+            {
+                var decision = MessageBox.Show(
+                    this,
+                    $"Current user '{currentUser}' is not in any enabled saved profile.\n\nStart listener anyway?",
+                    "InstantLoginSwitcher",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Question);
+                if (decision != MessageBoxResult.Yes)
+                {
+                    return;
+                }
+            }
+
+            var currentExecutable = Process.GetCurrentProcess().MainModule?.FileName;
+            if (string.IsNullOrWhiteSpace(currentExecutable))
+            {
+                throw new InvalidOperationException("Could not resolve executable path.");
+            }
+
+            _taskSchedulerService.StartListenerForUser(currentUser);
+
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = currentExecutable,
+                Arguments = "--listener",
+                WorkingDirectory = Path.GetDirectoryName(currentExecutable) ?? Environment.CurrentDirectory,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            });
+
+            SetStatus("Listener start requested for current user. Wait a second, then test hotkeys.");
+            MessageBox.Show(
+                this,
+                "Listener start requested.\n\nIf it was already running, this is safe and no duplicate listener will stay active.\n\nIf hotkeys still do nothing, run Check Setup or Save Diagnostics To File.",
+                "InstantLoginSwitcher",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+        }
+        catch (Exception exception)
+        {
+            MessageBox.Show(
+                this,
+                $"Could not start listener: {exception.Message}",
+                "InstantLoginSwitcher",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
     }
 
     private void ClearForm_Click(object sender, RoutedEventArgs e)
@@ -1050,6 +1142,16 @@ public partial class MainWindow : Window
                 warnings.Add("No profiles are enabled.");
             }
 
+            var chooserRoutes = GetChooserRouteSummaries(enabledProfiles);
+            if (chooserRoutes.Count > 0)
+            {
+                const int previewLimit = 4;
+                var previewItems = chooserRoutes.Take(previewLimit).ToList();
+                var remainder = chooserRoutes.Count - previewItems.Count;
+                var suffix = remainder > 0 ? $" (+{remainder} more)" : string.Empty;
+                warnings.Add("Chooser UI mode is active for: " + string.Join(", ", previewItems) + suffix + ".");
+            }
+
             var requiredUsers = GetRequiredUsersFromEnabledProfiles(enabledProfiles);
             var currentUserIncluded = requiredUsers.Any(user =>
                 user.Equals(Environment.UserName, StringComparison.OrdinalIgnoreCase));
@@ -1148,6 +1250,11 @@ public partial class MainWindow : Window
                 builder.AppendLine("Tip: Click 'Repair + Check Setup' to fix tasks and verify again.");
             }
 
+            if (warnings.Any(warning => warning.Contains("Current user's startup listener task was not found.", StringComparison.OrdinalIgnoreCase)))
+            {
+                builder.AppendLine("Tip: Click 'Start Listener For Current User' to test hotkeys immediately without signing out.");
+            }
+
             SetStatus("Setup check found issues. Review the details dialog.");
             MessageBox.Show(
                 this,
@@ -1169,9 +1276,24 @@ public partial class MainWindow : Window
 
     private void CopyDiagnostics_Click(object sender, RoutedEventArgs e)
     {
+        string diagnostics;
         try
         {
-            var diagnostics = BuildDiagnosticsSummary();
+            diagnostics = BuildDiagnosticsSummary();
+        }
+        catch (Exception exception)
+        {
+            MessageBox.Show(
+                this,
+                $"Failed to build diagnostics: {exception.Message}",
+                "InstantLoginSwitcher",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+            return;
+        }
+
+        try
+        {
             Clipboard.SetText(diagnostics);
             SetStatus("Diagnostics copied to clipboard.");
             MessageBox.Show(
@@ -1183,12 +1305,26 @@ public partial class MainWindow : Window
         }
         catch (Exception exception)
         {
-            MessageBox.Show(
-                this,
-                $"Failed to copy diagnostics: {exception.Message}",
-                "InstantLoginSwitcher",
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
+            try
+            {
+                var filePath = SaveDiagnosticsReportToFile(diagnostics);
+                SetStatus("Clipboard copy failed. Diagnostics were saved to file.");
+                MessageBox.Show(
+                    this,
+                    $"Clipboard copy failed: {exception.Message}\n\nDiagnostics were saved to:\n{filePath}",
+                    "InstantLoginSwitcher",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
+            catch (Exception saveException)
+            {
+                MessageBox.Show(
+                    this,
+                    $"Clipboard copy failed: {exception.Message}\n\nAlso failed to save diagnostics to file: {saveException.Message}",
+                    "InstantLoginSwitcher",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
         }
     }
 
@@ -1196,11 +1332,8 @@ public partial class MainWindow : Window
     {
         try
         {
-            InstallPaths.EnsureRootDirectory();
             var diagnostics = BuildDiagnosticsSummary();
-            var fileName = $"diagnostics-{DateTime.UtcNow:yyyyMMdd-HHmmss}.txt";
-            var filePath = Path.Combine(InstallPaths.RootDirectory, fileName);
-            InstallPaths.WriteUtf8NoBom(filePath, diagnostics + Environment.NewLine);
+            var filePath = SaveDiagnosticsReportToFile(diagnostics);
 
             SetStatus($"Diagnostics saved to {filePath}");
             var openFolder = MessageBox.Show(
@@ -1480,6 +1613,22 @@ public partial class MainWindow : Window
         }
     }
 
+    private static string SaveDiagnosticsReportToFile(string diagnosticsText)
+    {
+        InstallPaths.EnsureRootDirectory();
+        var fileName = $"diagnostics-{DateTime.UtcNow:yyyyMMdd-HHmmss-fff}.txt";
+        var filePath = Path.Combine(InstallPaths.RootDirectory, fileName);
+        if (File.Exists(filePath))
+        {
+            filePath = Path.Combine(
+                InstallPaths.RootDirectory,
+                $"diagnostics-{DateTime.UtcNow:yyyyMMdd-HHmmss-fff}-{Guid.NewGuid():N}.txt");
+        }
+
+        InstallPaths.WriteUtf8NoBom(filePath, diagnosticsText + Environment.NewLine);
+        return filePath;
+    }
+
     private string BuildDiagnosticsSummary()
     {
         InstallPaths.EnsureRootDirectory();
@@ -1498,6 +1647,7 @@ public partial class MainWindow : Window
 
         var enabledProfiles = config.Profiles.Where(profile => profile.Enabled).ToList();
         var requiredUsers = GetRequiredUsersFromEnabledProfiles(enabledProfiles);
+        var chooserRoutes = GetChooserRouteSummaries(enabledProfiles);
 
         List<string> startupTasks;
         try
@@ -1568,6 +1718,7 @@ public partial class MainWindow : Window
         builder.AppendLine($"PendingAutoLogonMarker: {File.Exists(InstallPaths.PendingAutoLogonMarkerPath)}");
         builder.AppendLine($"ConfigProfilesTotal: {config.Profiles.Count}");
         builder.AppendLine($"ConfigProfilesEnabled: {enabledProfiles.Count}");
+        builder.AppendLine($"ChooserRouteCount: {chooserRoutes.Count}");
         builder.AppendLine($"ConfigUsersWithCredentials: {config.Users.Count(user => !string.IsNullOrWhiteSpace(user.PasswordEncrypted))}");
         builder.AppendLine($"CurrentUserInEnabledProfiles: {requiredUsers.Any(user => user.Equals(Environment.UserName, StringComparison.OrdinalIgnoreCase))}");
         builder.AppendLine($"ExpectedCurrentUserTask: {expectedCurrentUserTask}");
@@ -1599,6 +1750,19 @@ public partial class MainWindow : Window
             foreach (var profile in enabledProfiles.OrderBy(profile => profile.Name, StringComparer.OrdinalIgnoreCase))
             {
                 builder.AppendLine($"  - {profile.Name} | {profile.UserA}<->{profile.UserB} | {profile.Hotkey}");
+            }
+        }
+
+        builder.AppendLine("ChooserRoutes:");
+        if (chooserRoutes.Count == 0)
+        {
+            builder.AppendLine("  (none)");
+        }
+        else
+        {
+            foreach (var route in chooserRoutes)
+            {
+                builder.AppendLine($"  - {route}");
             }
         }
 
@@ -1685,6 +1849,78 @@ public partial class MainWindow : Window
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(user => user, StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+    private IReadOnlyList<string> GetChooserRouteSummaries(IEnumerable<SwitchProfile> enabledProfiles)
+    {
+        var targetsByRoute = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+
+        static string BuildRouteKey(string sourceUser, string canonicalHotkey)
+        {
+            return sourceUser + "|" + canonicalHotkey;
+        }
+
+        static void AddTarget(
+            Dictionary<string, HashSet<string>> map,
+            string sourceUser,
+            string canonicalHotkey,
+            string targetUser)
+        {
+            var key = BuildRouteKey(sourceUser, canonicalHotkey);
+            if (!map.TryGetValue(key, out var targets))
+            {
+                targets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                map[key] = targets;
+            }
+
+            targets.Add(targetUser);
+        }
+
+        foreach (var profile in enabledProfiles.Where(profile => profile.Enabled))
+        {
+            var userA = profile.UserA?.Trim() ?? string.Empty;
+            var userB = profile.UserB?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(userA) ||
+                string.IsNullOrWhiteSpace(userB) ||
+                userA.Equals(userB, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            string canonicalHotkey;
+            try
+            {
+                canonicalHotkey = _hotkeyParser.Parse(profile.Hotkey).CanonicalText;
+            }
+            catch
+            {
+                continue;
+            }
+
+            AddTarget(targetsByRoute, userA, canonicalHotkey, userB);
+            AddTarget(targetsByRoute, userB, canonicalHotkey, userA);
+        }
+
+        var result = new List<string>();
+        foreach (var pair in targetsByRoute.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            if (pair.Value.Count <= 1)
+            {
+                continue;
+            }
+
+            var separatorIndex = pair.Key.IndexOf('|');
+            if (separatorIndex <= 0 || separatorIndex >= pair.Key.Length - 1)
+            {
+                continue;
+            }
+
+            var user = pair.Key[..separatorIndex];
+            var hotkey = pair.Key[(separatorIndex + 1)..];
+            result.Add($"{user} on {hotkey} ({pair.Value.Count} targets)");
+        }
+
+        return result;
     }
 
     private IReadOnlyList<string> GetConfigValidationIssues(SwitcherConfig config)

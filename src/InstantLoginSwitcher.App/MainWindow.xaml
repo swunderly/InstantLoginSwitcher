@@ -105,6 +105,7 @@
                     <Button Height="34" MinWidth="100" Margin="0,0,8,0" Content="Reload" Click="Reload_Click" />
                     <Button Height="34" MinWidth="170" Margin="0,0,8,0" Content="Repair Startup Tasks" Click="RepairStartupTasks_Click" />
                     <Button Height="34" MinWidth="190" Margin="0,0,8,0" Content="Repair + Check Setup" Click="RepairAndCheckSetup_Click" />
+                    <Button Height="34" MinWidth="230" Margin="0,0,8,0" Content="Start Listener For Current User" Click="StartListenerForCurrentUser_Click" />
                     <Button Height="34" MinWidth="150" Margin="0,0,8,0" Content="Open Data Folder" Click="OpenDataFolder_Click" />
                     <Button x:Name="OpenConfigButton" Height="34" MinWidth="150" Margin="0,0,8,0" Content="Open Config File" Click="OpenConfigFile_Click" />
                     <Button x:Name="RestoreBackupButton" Height="34" MinWidth="190" Margin="0,0,8,0" Content="Restore Backup Config" Click="RestoreBackupConfig_Click" />

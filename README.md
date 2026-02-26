@@ -124,6 +124,7 @@ Listener mode runs the same executable with:
 If listener startup tasks become broken, use `Repair Startup Tasks` in the app.
 If there are no enabled profiles, repair will remove startup tasks and clear auto-logon values.
 If unsaved edits exist, the app now warns that repair uses the currently shown profiles.
+`Start Listener For Current User` is a manual test shortcut and uses the saved config on disk.
 
 `Remove All Startup Tasks` also warns when unsaved edits exist, because it changes tasks/auto-logon but does not save or delete profile edits.
 
@@ -137,6 +138,7 @@ Use the built-in buttons in the main window:
 - `Open Listener Log`
 - `Open Switch Log`
 - `Repair + Check Setup` (repairs startup tasks and immediately runs setup validation)
+- `Start Listener For Current User` (starts listener mode immediately for the signed-in account so you can test without signing out)
 - `Check Setup` (flags missing credentials, invalid/duplicate enabled profiles, missing startup tasks per enabled user, and stale old tasks)
 - `Copy Diagnostics` (copies profile/task summary plus recent log tails to clipboard)
 - `Save Diagnostics To File` (writes a timestamped diagnostics text file into `C:\ProgramData\InstantLoginSwitcher`)
@@ -146,6 +148,8 @@ On smaller windows, the action button row is horizontally scrollable.
 Diagnostics now include validation issues such as invalid hotkeys or missing stored passwords.
 Diagnostics also report the expected startup task name for the current user and whether it exists.
 Diagnostics now include `ExpectedTasksByUser` and `UnexpectedStartupTasks` sections for faster task troubleshooting.
+Diagnostics include chooser-route summaries so you can see where one hotkey opens a target picker.
+If clipboard copy fails, `Copy Diagnostics` now falls back to saving a diagnostics file automatically.
 Diagnostics include an internal errors section if any data source (for example task query) fails.
 Diagnostics include config/backup file existence and last-write timestamps.
 `Restore Backup Config` is enabled only when a backup file exists.
@@ -155,8 +159,9 @@ If a hotkey appears to do nothing:
 1. Click `Save And Apply`.
 2. Confirm the signed-in user is included in at least one enabled profile.
 3. Click `Repair + Check Setup`.
-4. Sign out and sign back in.
-5. Open `listener.log` and `switch.log` (or use `Save Diagnostics To File`) and review the latest entries.
+4. Click `Start Listener For Current User` to test immediately.
+5. If still needed, sign out and sign back in.
+6. Open `listener.log` and `switch.log` (or use `Save Diagnostics To File`) and review the latest entries.
 
 If `Save And Apply` reports startup-task failure, your profile changes are still saved; use `Repair Startup Tasks` or `Repair + Check Setup` to retry task registration.
 
