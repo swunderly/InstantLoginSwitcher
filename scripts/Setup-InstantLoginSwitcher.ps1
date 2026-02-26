@@ -1200,21 +1200,39 @@ $nextHotkeyId = 1
 $lastHotkey = $defaultHotkeyNormalized
 $nextDefaultA = $defaultUserA
 $nextDefaultB = $defaultUserB
+$autoSelectOnlyAdminPair = ($localAdminUsers.Count -eq 2)
 
 for ($index = 1; $index -le $profileCount; $index++) {
     Write-Host ''
     Write-Host ("Profile {0} of {1}" -f $index, $profileCount)
 
-    $userA = Read-LocalAccountFromPrompt -PromptText 'First user' -DefaultValue $nextDefaultA -LocalUsers $localUsers -AdminUserNames $adminUserNames
+    if ($autoSelectOnlyAdminPair) {
+        $userA = Resolve-LocalAccount -InputName $nextDefaultA -LocalUsers $localUsers
+        $userB = Resolve-LocalAccount -InputName $nextDefaultB -LocalUsers $localUsers
+        if ($userA.UserName -ieq $userB.UserName) {
+            $fallback = @($localAdminUsers | Sort-Object Name | Select-Object -First 2)
+            if ($fallback.Count -ne 2) {
+                throw 'Could not determine the automatic two-user admin pair.'
+            }
 
-    while ($true) {
-        $userB = Read-LocalAccountFromPrompt -PromptText 'Second user' -DefaultValue $nextDefaultB -LocalUsers $localUsers -AdminUserNames $adminUserNames
-        if ($userB.UserName -ieq $userA.UserName) {
-            Write-Host 'First and second user must be different.' -ForegroundColor Yellow
-            continue
+            $userA = Resolve-LocalAccount -InputName ([string]$fallback[0].Name) -LocalUsers $localUsers
+            $userB = Resolve-LocalAccount -InputName ([string]$fallback[1].Name) -LocalUsers $localUsers
         }
 
-        break
+        Write-Host ("Using users automatically: {0} <-> {1}" -f $userA.UserName, $userB.UserName)
+    }
+    else {
+        $userA = Read-LocalAccountFromPrompt -PromptText 'First user' -DefaultValue $nextDefaultA -LocalUsers $localUsers -AdminUserNames $adminUserNames
+
+        while ($true) {
+            $userB = Read-LocalAccountFromPrompt -PromptText 'Second user' -DefaultValue $nextDefaultB -LocalUsers $localUsers -AdminUserNames $adminUserNames
+            if ($userB.UserName -ieq $userA.UserName) {
+                Write-Host 'First and second user must be different.' -ForegroundColor Yellow
+                continue
+            }
+
+            break
+        }
     }
 
     $hotkey = Read-HotkeyFromPrompt -DefaultValue $lastHotkey

@@ -27,7 +27,7 @@ It is not native Fast User Switching.
 4. Right-click `Install-InstantLoginSwitcher.cmd` and choose **Run as administrator**.
 5. In the installer prompts:
    - choose how many profiles to create,
-   - choose the two users for each profile,
+   - choose the two users for each profile (skipped automatically when exactly two local admin users exist),
    - choose a hotkey for each profile,
    - enter each selected account password when prompted.
 6. Sign out and sign back in once.
