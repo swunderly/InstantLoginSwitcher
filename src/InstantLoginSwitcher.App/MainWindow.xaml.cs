@@ -1037,6 +1037,9 @@ public partial class MainWindow : Window
             .GetManagedTaskNamesForDiagnostics()
             .OrderBy(task => task, StringComparer.OrdinalIgnoreCase)
             .ToList();
+        var expectedCurrentUserTask = _taskSchedulerService.GetTaskNameForUser(Environment.UserName);
+        var hasCurrentUserTask = startupTasks.Any(task =>
+            task.Equals(expectedCurrentUserTask, StringComparison.OrdinalIgnoreCase));
 
         var builder = new StringBuilder();
         builder.AppendLine("InstantLoginSwitcher Diagnostics");
@@ -1052,6 +1055,8 @@ public partial class MainWindow : Window
         builder.AppendLine($"ConfigProfilesEnabled: {enabledProfiles.Count}");
         builder.AppendLine($"ConfigUsersWithCredentials: {config.Users.Count(user => !string.IsNullOrWhiteSpace(user.PasswordEncrypted))}");
         builder.AppendLine($"CurrentUserInEnabledProfiles: {requiredUsers.Any(user => user.Equals(Environment.UserName, StringComparison.OrdinalIgnoreCase))}");
+        builder.AppendLine($"ExpectedCurrentUserTask: {expectedCurrentUserTask}");
+        builder.AppendLine($"ExpectedCurrentUserTaskPresent: {hasCurrentUserTask}");
 
         var validationIssues = GetConfigValidationIssues(config);
         builder.AppendLine($"ValidationIssues: {validationIssues.Count}");
