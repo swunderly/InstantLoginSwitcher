@@ -135,12 +135,14 @@ Use the built-in buttons in the main window:
 - `Restore Backup Config`
 - `Open Listener Log`
 - `Open Switch Log`
+- `Check Setup` (flags missing credentials, invalid/duplicate enabled profiles, missing startup tasks per enabled user, and stale old tasks)
 - `Copy Diagnostics` (copies profile/task summary plus recent log tails to clipboard)
 
 Runtime files are in `C:\ProgramData\InstantLoginSwitcher`.
 On smaller windows, the action button row is horizontally scrollable.
 Diagnostics now include validation issues such as invalid hotkeys or missing stored passwords.
 Diagnostics also report the expected startup task name for the current user and whether it exists.
+Diagnostics now include `ExpectedTasksByUser` and `UnexpectedStartupTasks` sections for faster task troubleshooting.
 Diagnostics include an internal errors section if any data source (for example task query) fails.
 Diagnostics include config/backup file existence and last-write timestamps.
 `Restore Backup Config` is enabled only when a backup file exists.

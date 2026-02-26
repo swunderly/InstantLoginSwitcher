@@ -465,6 +465,7 @@ public partial class MainWindow : Window
             var requiredUsers = _profiles
                 .Where(profile => profile.Enabled)
                 .SelectMany(profile => new[] { profile.UserA, profile.UserB })
+                .Select(user => user?.Trim() ?? string.Empty)
                 .Where(user => !string.IsNullOrWhiteSpace(user))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
@@ -1063,6 +1064,142 @@ public partial class MainWindow : Window
         OpenPath(InstallPaths.SwitchLogPath, isLogFile: true);
     }
 
+    private void CheckSetup_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var config = _configService.Load();
+            var issues = new List<string>(GetConfigValidationIssues(config));
+            var warnings = new List<string>();
+
+            if (config.Profiles.Count == 0)
+            {
+                warnings.Add("No profiles are configured.");
+            }
+
+            var enabledProfiles = config.Profiles.Where(profile => profile.Enabled).ToList();
+            if (enabledProfiles.Count == 0)
+            {
+                warnings.Add("No profiles are enabled.");
+            }
+
+            var requiredUsers = GetRequiredUsersFromEnabledProfiles(enabledProfiles);
+            var currentUserIncluded = requiredUsers.Any(user =>
+                user.Equals(Environment.UserName, StringComparison.OrdinalIgnoreCase));
+            if (requiredUsers.Count > 0 && !currentUserIncluded)
+            {
+                warnings.Add("Current signed-in user is not in any enabled profile.");
+            }
+
+            try
+            {
+                var tasks = _taskSchedulerService.GetManagedTaskNamesForDiagnostics();
+                var taskSet = tasks.ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var expectedTaskNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var user in requiredUsers)
+                {
+                    expectedTaskNames[user] = _taskSchedulerService.GetTaskNameForUser(user);
+                }
+
+                var missingTaskUsers = expectedTaskNames
+                    .Where(pair => !taskSet.Contains(pair.Value))
+                    .Select(pair => pair.Key)
+                    .OrderBy(user => user, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                if (missingTaskUsers.Count > 0)
+                {
+                    warnings.Add("Missing startup listener tasks for: " + string.Join(", ", missingTaskUsers) + ".");
+                }
+
+                var expectedTaskSet = expectedTaskNames.Values.ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var staleTasks = tasks
+                    .Where(task => !expectedTaskSet.Contains(task))
+                    .ToList();
+                if (staleTasks.Count > 0)
+                {
+                    warnings.Add($"Found {staleTasks.Count} extra managed startup task(s) from older configs.");
+                }
+
+                if (currentUserIncluded)
+                {
+                    var expectedCurrentTask = _taskSchedulerService.GetTaskNameForUser(Environment.UserName);
+                    if (!taskSet.Contains(expectedCurrentTask))
+                    {
+                        warnings.Add("Current user's startup listener task was not found.");
+                    }
+                }
+            }
+            catch (Exception exception)
+            {
+                warnings.Add("Could not verify startup tasks: " + exception.Message);
+            }
+
+            if (issues.Count == 0 && warnings.Count == 0)
+            {
+                SetStatus("Setup check passed.");
+                MessageBox.Show(
+                    this,
+                    "Setup check passed. No configuration problems were found.",
+                    "InstantLoginSwitcher",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            var builder = new StringBuilder();
+            builder.AppendLine("Setup check found items to review.");
+            builder.AppendLine($"Configuration issues: {issues.Count}");
+            builder.AppendLine($"Warnings: {warnings.Count}");
+            builder.AppendLine();
+
+            if (issues.Count > 0)
+            {
+                builder.AppendLine("Configuration issues:");
+            }
+            foreach (var issue in issues)
+            {
+                builder.AppendLine("- " + issue);
+            }
+
+            if (warnings.Count > 0)
+            {
+                if (issues.Count > 0)
+                {
+                    builder.AppendLine();
+                }
+
+                builder.AppendLine("Warnings:");
+            }
+            foreach (var warning in warnings)
+            {
+                builder.AppendLine("- " + warning);
+            }
+
+            if (warnings.Any(warning => warning.Contains("startup listener task", StringComparison.OrdinalIgnoreCase)))
+            {
+                builder.AppendLine();
+                builder.AppendLine("Tip: Click 'Repair Startup Tasks' and then run 'Check Setup' again.");
+            }
+
+            SetStatus("Setup check found issues. Review the details dialog.");
+            MessageBox.Show(
+                this,
+                builder.ToString(),
+                "InstantLoginSwitcher Setup Check",
+                MessageBoxButton.OK,
+                issues.Count > 0 ? MessageBoxImage.Warning : MessageBoxImage.Information);
+        }
+        catch (Exception exception)
+        {
+            MessageBox.Show(
+                this,
+                $"Setup check failed: {exception.Message}",
+                "InstantLoginSwitcher",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+    }
+
     private void CopyDiagnostics_Click(object sender, RoutedEventArgs e)
     {
         try
@@ -1198,12 +1335,7 @@ public partial class MainWindow : Window
         }
 
         var enabledProfiles = config.Profiles.Where(profile => profile.Enabled).ToList();
-        var requiredUsers = enabledProfiles
-            .SelectMany(profile => new[] { profile.UserA, profile.UserB })
-            .Where(user => !string.IsNullOrWhiteSpace(user))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(user => user, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        var requiredUsers = GetRequiredUsersFromEnabledProfiles(enabledProfiles);
 
         List<string> startupTasks;
         try
@@ -1230,8 +1362,33 @@ public partial class MainWindow : Window
             expectedCurrentUserTask = "(unavailable: " + exception.Message + ")";
         }
 
-        var hasCurrentUserTask = startupTasks.Any(task =>
-            task.Equals(expectedCurrentUserTask, StringComparison.OrdinalIgnoreCase));
+        var startupTaskSet = startupTasks.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var hasCurrentUserTask = startupTaskSet.Contains(expectedCurrentUserTask);
+        var expectedTaskByUser = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var missingExpectedUsers = new List<string>();
+        foreach (var user in requiredUsers)
+        {
+            try
+            {
+                var expectedTask = _taskSchedulerService.GetTaskNameForUser(user);
+                expectedTaskByUser[user] = expectedTask;
+                if (!startupTaskSet.Contains(expectedTask))
+                {
+                    missingExpectedUsers.Add(user);
+                }
+            }
+            catch (Exception exception)
+            {
+                diagnosticsErrors.Add($"Expected task name failed for '{user}': {exception.Message}");
+                missingExpectedUsers.Add(user);
+            }
+        }
+
+        var expectedTaskNameSet = expectedTaskByUser.Values.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var unexpectedStartupTasks = startupTasks
+            .Where(task => !expectedTaskNameSet.Contains(task))
+            .OrderBy(task => task, StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
         var builder = new StringBuilder();
         builder.AppendLine("InstantLoginSwitcher Diagnostics");
@@ -1253,6 +1410,8 @@ public partial class MainWindow : Window
         builder.AppendLine($"CurrentUserInEnabledProfiles: {requiredUsers.Any(user => user.Equals(Environment.UserName, StringComparison.OrdinalIgnoreCase))}");
         builder.AppendLine($"ExpectedCurrentUserTask: {expectedCurrentUserTask}");
         builder.AppendLine($"ExpectedCurrentUserTaskPresent: {hasCurrentUserTask}");
+        builder.AppendLine($"MissingExpectedTasks: {missingExpectedUsers.Count}");
+        builder.AppendLine($"UnexpectedManagedTasks: {unexpectedStartupTasks.Count}");
 
         IReadOnlyList<string> validationIssues;
         try
@@ -1294,6 +1453,33 @@ public partial class MainWindow : Window
             }
         }
 
+        builder.AppendLine("ExpectedTasksByUser:");
+        if (expectedTaskByUser.Count == 0)
+        {
+            builder.AppendLine("  (none)");
+        }
+        else
+        {
+            foreach (var pair in expectedTaskByUser.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase))
+            {
+                var state = startupTaskSet.Contains(pair.Value) ? "present" : "missing";
+                builder.AppendLine($"  - {pair.Key}: {pair.Value} [{state}]");
+            }
+        }
+
+        builder.AppendLine("UnexpectedStartupTasks:");
+        if (unexpectedStartupTasks.Count == 0)
+        {
+            builder.AppendLine("  (none)");
+        }
+        else
+        {
+            foreach (var task in unexpectedStartupTasks)
+            {
+                builder.AppendLine($"  - {task}");
+            }
+        }
+
         builder.AppendLine("ValidationIssueDetails:");
         if (validationIssues.Count == 0)
         {
@@ -1328,26 +1514,48 @@ public partial class MainWindow : Window
         return builder.ToString();
     }
 
+    private static List<string> GetRequiredUsersFromEnabledProfiles(IEnumerable<SwitchProfile> enabledProfiles)
+    {
+        return enabledProfiles
+            .SelectMany(profile => new[] { profile.UserA, profile.UserB })
+            .Select(user => user?.Trim() ?? string.Empty)
+            .Where(user => !string.IsNullOrWhiteSpace(user))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(user => user, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
     private IReadOnlyList<string> GetConfigValidationIssues(SwitcherConfig config)
     {
         var issues = new List<string>();
         var credentialByUser = config.Users
             .GroupBy(user => user.UserName, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        var duplicateGuard = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var profile in config.Profiles.Where(profile => profile.Enabled))
         {
             var profileName = string.IsNullOrWhiteSpace(profile.Name) ? profile.Id.ToString() : profile.Name;
+            var userA = profile.UserA?.Trim() ?? string.Empty;
+            var userB = profile.UserB?.Trim() ?? string.Empty;
+            string? canonicalHotkey = null;
             try
             {
-                _hotkeyParser.Parse(profile.Hotkey);
+                canonicalHotkey = _hotkeyParser.Parse(profile.Hotkey).CanonicalText;
             }
             catch (Exception exception)
             {
                 issues.Add($"Profile '{profileName}' has invalid hotkey '{profile.Hotkey}': {exception.Message}");
             }
 
-            foreach (var userName in new[] { profile.UserA, profile.UserB })
+            if (!string.IsNullOrWhiteSpace(userA) &&
+                !string.IsNullOrWhiteSpace(userB) &&
+                userA.Equals(userB, StringComparison.OrdinalIgnoreCase))
+            {
+                issues.Add($"Profile '{profileName}' has identical users.");
+            }
+
+            foreach (var userName in new[] { userA, userB })
             {
                 if (string.IsNullOrWhiteSpace(userName))
                 {
@@ -1359,6 +1567,20 @@ public partial class MainWindow : Window
                     string.IsNullOrWhiteSpace(credential.PasswordEncrypted))
                 {
                     issues.Add($"Profile '{profileName}' is missing a saved password for '{userName}'.");
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(canonicalHotkey) &&
+                !string.IsNullOrWhiteSpace(userA) &&
+                !string.IsNullOrWhiteSpace(userB))
+            {
+                var orderedUsers = new[] { userA, userB }
+                    .OrderBy(user => user, StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+                var signature = $"{orderedUsers[0]}|{orderedUsers[1]}|{canonicalHotkey}";
+                if (!duplicateGuard.Add(signature))
+                {
+                    issues.Add($"Duplicate enabled profile mapping detected for users '{orderedUsers[0]}' and '{orderedUsers[1]}' on hotkey '{canonicalHotkey}'.");
                 }
             }
         }
@@ -1429,18 +1651,27 @@ public partial class MainWindow : Window
 
     private void UpdateFileActionState()
     {
-        InstallPaths.EnsureRootDirectory();
-        var configExists = File.Exists(InstallPaths.ConfigPath);
-        var backupExists = File.Exists(InstallPaths.ConfigBackupPath);
+        try
+        {
+            InstallPaths.EnsureRootDirectory();
+            var configExists = File.Exists(InstallPaths.ConfigPath);
+            var backupExists = File.Exists(InstallPaths.ConfigBackupPath);
 
-        OpenConfigButton.ToolTip = configExists
-            ? "Open the current config file."
-            : "Config file does not exist yet. Click to open the data folder instead.";
+            OpenConfigButton.ToolTip = configExists
+                ? "Open the current config file."
+                : "Config file does not exist yet. Click to open the data folder instead.";
 
-        RestoreBackupButton.IsEnabled = backupExists;
-        RestoreBackupButton.ToolTip = backupExists
-            ? "Replace current config with the backup file and reload."
-            : "No backup config is available yet.";
+            RestoreBackupButton.IsEnabled = backupExists;
+            RestoreBackupButton.ToolTip = backupExists
+                ? "Replace current config with the backup file and reload."
+                : "No backup config is available yet.";
+        }
+        catch (Exception exception)
+        {
+            OpenConfigButton.ToolTip = "File status unavailable: " + exception.Message;
+            RestoreBackupButton.IsEnabled = false;
+            RestoreBackupButton.ToolTip = "File status unavailable: " + exception.Message;
+        }
     }
 
     private void UpdateDirtyUiState()
