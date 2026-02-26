@@ -7,6 +7,7 @@ namespace InstantLoginSwitcher.App;
 public partial class App : Application
 {
     private ListenerRuntime? _listenerRuntime;
+    private Mutex? _listenerMutex;
 
     private readonly ConfigService _configService = new();
     private readonly HotkeyParser _hotkeyParser = new();
@@ -43,12 +44,37 @@ public partial class App : Application
     private void OnExit(object sender, ExitEventArgs e)
     {
         _listenerRuntime?.Dispose();
+        if (_listenerMutex is not null)
+        {
+            try
+            {
+                _listenerMutex.ReleaseMutex();
+            }
+            catch
+            {
+                // Ignore release failures during shutdown.
+            }
+
+            _listenerMutex.Dispose();
+            _listenerMutex = null;
+        }
     }
 
     private void StartListenerMode()
     {
         try
         {
+            _listenerMutex = new Mutex(
+                initiallyOwned: true,
+                name: @"Global\InstantLoginSwitcher.Listener",
+                createdNew: out var isNewMutex);
+
+            if (!isNewMutex)
+            {
+                Shutdown(0);
+                return;
+            }
+
             _listenerRuntime = new ListenerRuntime(
                 _configService,
                 _hotkeyParser,

@@ -45,7 +45,9 @@ public sealed class TaskSchedulerService
         }
 
         var taskName = GetTaskNameForUser(userName);
-        RunSchtasks($"/Run /TN \"{taskName}\"", allowFailure: true);
+        RunSchtasks(
+            ["/Run", "/TN", taskName],
+            allowFailure: true);
     }
 
     public void RemoveAllManagedTasks()
@@ -75,22 +77,34 @@ public sealed class TaskSchedulerService
     {
         var taskName = GetTaskNameForUser(userName);
         var qualifiedUser = $"{Environment.MachineName}\\{userName}";
-        var taskRun = $"\\\"{listenerExecutablePath}\\\" --listener";
+        var taskRun = $"\"{listenerExecutablePath}\" --listener";
 
-        var arguments =
-            $"/Create /TN \"{taskName}\" /SC ONLOGON /RU \"{qualifiedUser}\" /RL HIGHEST /IT /F /TR \"{taskRun}\"";
-
-        RunSchtasks(arguments, allowFailure: false);
+        RunSchtasks(
+            [
+                "/Create",
+                "/TN", taskName,
+                "/SC", "ONLOGON",
+                "/RU", qualifiedUser,
+                "/RL", "HIGHEST",
+                "/IT",
+                "/F",
+                "/TR", taskRun
+            ],
+            allowFailure: false);
     }
 
     private void RemoveTask(string taskName)
     {
-        RunSchtasks($"/Delete /TN \"{taskName}\" /F", allowFailure: true);
+        RunSchtasks(
+            ["/Delete", "/TN", taskName, "/F"],
+            allowFailure: true);
     }
 
     private IReadOnlyList<string> GetManagedTaskNames()
     {
-        var output = RunSchtasks("/Query /FO CSV /NH", allowFailure: false);
+        var output = RunSchtasks(
+            ["/Query", "/FO", "CSV", "/NH"],
+            allowFailure: false);
         var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var line in output.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries))
@@ -148,17 +162,20 @@ public sealed class TaskSchedulerService
         return builder.ToString();
     }
 
-    private static string RunSchtasks(string arguments, bool allowFailure)
+    private static string RunSchtasks(IReadOnlyList<string> arguments, bool allowFailure)
     {
         var startInfo = new ProcessStartInfo
         {
             FileName = "schtasks.exe",
-            Arguments = arguments,
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             CreateNoWindow = true
         };
+        foreach (var argument in arguments)
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
 
         using var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Unable to start schtasks.exe.");
@@ -170,7 +187,7 @@ public sealed class TaskSchedulerService
         if (process.ExitCode != 0 && !allowFailure)
         {
             throw new InvalidOperationException(
-                $"schtasks failed (exit {process.ExitCode}) with arguments [{arguments}]\n{output}\n{error}");
+                $"schtasks failed (exit {process.ExitCode}) with arguments [{string.Join(" ", arguments)}]\n{output}\n{error}");
         }
 
         return output;
