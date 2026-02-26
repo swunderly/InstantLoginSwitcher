@@ -56,6 +56,7 @@ Tip: if your PC has exactly two enabled admin accounts, selecting one user auto-
 Hotkeys are normalized automatically when the hotkey field loses focus.
 Profile-only actions (`Remove Selected Hotkey`, `Update Passwords`) stay disabled until you select a profile row.
 When disabled, those buttons now show a tooltip explaining what is needed.
+When you click `Save And Apply` with unsaved form edits, the app now offers to apply the draft first, ignore it, or cancel.
 
 During save, the app prompts for missing account passwords and validates them.
 If no enabled profiles remain, save will remove startup tasks and clear auto-logon values.

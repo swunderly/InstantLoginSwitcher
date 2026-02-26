@@ -286,19 +286,9 @@ public partial class MainWindow : Window
 
     private void SaveAndApply_Click(object sender, RoutedEventArgs e)
     {
-        if (_hasDraftChanges)
+        if (!ResolveDraftBeforeSave())
         {
-            var continueWithoutDraft = MessageBox.Show(
-                this,
-                "You changed values in the profile form but did not click Add Profile or Update Profile. Save and apply without those form edits?",
-                "InstantLoginSwitcher",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Warning);
-
-            if (continueWithoutDraft != MessageBoxResult.Yes)
-            {
-                return;
-            }
+            return;
         }
 
         try
@@ -362,6 +352,47 @@ public partial class MainWindow : Window
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
         }
+    }
+
+    private bool ResolveDraftBeforeSave()
+    {
+        if (!_hasDraftChanges)
+        {
+            return true;
+        }
+
+        var (isDraftValid, validationMessage) = ValidateCurrentForm();
+        if (!isDraftValid)
+        {
+            var ignoreDraft = MessageBox.Show(
+                this,
+                $"You have unsaved form edits that are not valid.\n\n{validationMessage}\n\nSave and apply without those form edits?",
+                "InstantLoginSwitcher",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+            return ignoreDraft == MessageBoxResult.Yes;
+        }
+
+        var actionVerb = _editingProfileId.HasValue ? "update the selected profile" : "add a new profile";
+        var decision = MessageBox.Show(
+            this,
+            $"You have unsaved form edits.\n\nYes: {actionVerb}, then Save And Apply.\nNo: save existing profiles only.\nCancel: go back.",
+            "InstantLoginSwitcher",
+            MessageBoxButton.YesNoCancel,
+            MessageBoxImage.Question);
+
+        if (decision == MessageBoxResult.Cancel)
+        {
+            return false;
+        }
+
+        if (decision == MessageBoxResult.No)
+        {
+            return true;
+        }
+
+        AddOrUpdateProfile_Click(this, new RoutedEventArgs());
+        return !_hasDraftChanges;
     }
 
     private void Reload_Click(object sender, RoutedEventArgs e)
