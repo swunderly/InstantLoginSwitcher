@@ -1068,7 +1068,16 @@ public partial class MainWindow : Window
             .GetManagedTaskNamesForDiagnostics()
             .OrderBy(task => task, StringComparer.OrdinalIgnoreCase)
             .ToList();
-        var expectedCurrentUserTask = _taskSchedulerService.GetTaskNameForUser(Environment.UserName);
+        string expectedCurrentUserTask;
+        try
+        {
+            expectedCurrentUserTask = _taskSchedulerService.GetTaskNameForUser(Environment.UserName);
+        }
+        catch (Exception exception)
+        {
+            expectedCurrentUserTask = "(unavailable: " + exception.Message + ")";
+        }
+
         var hasCurrentUserTask = startupTasks.Any(task =>
             task.Equals(expectedCurrentUserTask, StringComparison.OrdinalIgnoreCase));
 
