@@ -9,6 +9,7 @@ public static class InstallPaths
         "InstantLoginSwitcher");
 
     public static string ConfigPath => Path.Combine(RootDirectory, "config.json");
+    public static string ConfigBackupPath => Path.Combine(RootDirectory, "config.backup.json");
     public static string ListenerLogPath => Path.Combine(RootDirectory, "listener.log");
     public static string SwitchLogPath => Path.Combine(RootDirectory, "switch.log");
     public static string PendingAutoLogonMarkerPath => Path.Combine(RootDirectory, "pending-autologon-cleanup.flag");

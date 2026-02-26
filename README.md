@@ -149,6 +149,7 @@ Runtime logs:
 - `C:\ProgramData\InstantLoginSwitcher\listener.log`
 - `C:\ProgramData\InstantLoginSwitcher\switch.log`
 - `C:\ProgramData\InstantLoginSwitcher\config.json`
+- `C:\ProgramData\InstantLoginSwitcher\config.backup.json` (automatic recovery backup)
 
 ## Security
 

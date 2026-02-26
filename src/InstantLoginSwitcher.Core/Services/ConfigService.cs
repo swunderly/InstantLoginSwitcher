@@ -14,15 +14,18 @@ public sealed class ConfigService
     public SwitcherConfig Load()
     {
         InstallPaths.EnsureRootDirectory();
-        if (!File.Exists(InstallPaths.ConfigPath))
+        if (TryLoadFromPath(InstallPaths.ConfigPath, out var primary))
         {
-            return NewEmptyConfig();
+            return primary;
         }
 
-        var json = File.ReadAllText(InstallPaths.ConfigPath);
-        var config = JsonSerializer.Deserialize<SwitcherConfig>(json, SerializerOptions) ?? NewEmptyConfig();
-        Normalize(config);
-        return config;
+        if (TryLoadFromPath(InstallPaths.ConfigBackupPath, out var backup))
+        {
+            TryRestorePrimaryFromBackup();
+            return backup;
+        }
+
+        return NewEmptyConfig();
     }
 
     public void Save(SwitcherConfig config)
@@ -33,7 +36,33 @@ public sealed class ConfigService
 
         InstallPaths.EnsureRootDirectory();
         var json = JsonSerializer.Serialize(config, SerializerOptions);
-        InstallPaths.WriteUtf8NoBom(InstallPaths.ConfigPath, json + Environment.NewLine);
+        var tempPath = InstallPaths.ConfigPath + ".tmp";
+        InstallPaths.WriteUtf8NoBom(tempPath, json + Environment.NewLine);
+
+        try
+        {
+            if (File.Exists(InstallPaths.ConfigPath))
+            {
+                try
+                {
+                    File.Replace(tempPath, InstallPaths.ConfigPath, InstallPaths.ConfigBackupPath, ignoreMetadataErrors: true);
+                }
+                catch
+                {
+                    File.Copy(tempPath, InstallPaths.ConfigPath, overwrite: true);
+                    File.Copy(InstallPaths.ConfigPath, InstallPaths.ConfigBackupPath, overwrite: true);
+                }
+            }
+            else
+            {
+                File.Move(tempPath, InstallPaths.ConfigPath, overwrite: true);
+                File.Copy(InstallPaths.ConfigPath, InstallPaths.ConfigBackupPath, overwrite: true);
+            }
+        }
+        finally
+        {
+            TryDeleteFile(tempPath);
+        }
     }
 
     private static SwitcherConfig NewEmptyConfig()
@@ -74,6 +103,65 @@ public sealed class ConfigService
             user.SidValue ??= string.Empty;
             user.PasswordEncrypted ??= string.Empty;
             user.PicturePath ??= string.Empty;
+        }
+    }
+
+    private static bool TryLoadFromPath(string path, out SwitcherConfig config)
+    {
+        config = NewEmptyConfig();
+        if (!File.Exists(path))
+        {
+            return false;
+        }
+
+        try
+        {
+            var json = File.ReadAllText(path);
+            var parsed = JsonSerializer.Deserialize<SwitcherConfig>(json, SerializerOptions);
+            if (parsed is null)
+            {
+                return false;
+            }
+
+            Normalize(parsed);
+            config = parsed;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void TryRestorePrimaryFromBackup()
+    {
+        try
+        {
+            if (!File.Exists(InstallPaths.ConfigBackupPath))
+            {
+                return;
+            }
+
+            File.Copy(InstallPaths.ConfigBackupPath, InstallPaths.ConfigPath, overwrite: true);
+        }
+        catch
+        {
+            // Best-effort restore only.
+        }
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch
+        {
+            // Best-effort cleanup only.
         }
     }
 }

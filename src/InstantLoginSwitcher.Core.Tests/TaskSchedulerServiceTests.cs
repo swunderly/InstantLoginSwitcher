@@ -25,4 +25,13 @@ public sealed class TaskSchedulerServiceTests
 
         Assert.NotEqual(first, second);
     }
+
+    [Fact]
+    public void GetTaskNameForUser_IsCaseInsensitive()
+    {
+        var lower = _service.GetTaskNameForUser("swunderly");
+        var upper = _service.GetTaskNameForUser("SWUNDERLY");
+
+        Assert.Equal(lower, upper);
+    }
 }

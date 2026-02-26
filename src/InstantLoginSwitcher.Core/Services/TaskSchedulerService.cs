@@ -67,7 +67,8 @@ public sealed class TaskSchedulerService
     public string GetTaskNameForUser(string userName)
     {
         var normalized = userName.Trim();
-        var sanitized = new string(normalized
+        var canonical = normalized.ToUpperInvariant();
+        var sanitized = new string(canonical
             .Trim()
             .Select(ch => char.IsLetterOrDigit(ch) || ch == '-' ? ch : '_')
             .ToArray());
@@ -77,7 +78,7 @@ public sealed class TaskSchedulerService
             throw new InvalidOperationException("User name cannot be blank when creating a task name.");
         }
 
-        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(normalized)))[..8];
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical)))[..8];
         return $"{TaskPrefix}{sanitized}_{hash}";
     }
 

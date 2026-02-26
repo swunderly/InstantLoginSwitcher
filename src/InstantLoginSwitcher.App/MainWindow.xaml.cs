@@ -739,6 +739,11 @@ public partial class MainWindow : Window
         try
         {
             var parsed = _hotkeyParser.Parse(HotkeyBox.Text);
+            if (HasDuplicateProfile(firstUser.UserName, secondUser.UserName, parsed.CanonicalText, _editingProfileId))
+            {
+                return (false, "A profile with the same users and hotkey already exists.");
+            }
+
             var mode = _editingProfileId.HasValue ? "update" : "add";
             return (true, $"Ready to {mode}. Hotkey will be saved as: {parsed.CanonicalText}");
         }
@@ -891,6 +896,8 @@ public partial class MainWindow : Window
         builder.AppendLine($"CurrentUser: {Environment.UserName}");
         builder.AppendLine($"DataFolder: {InstallPaths.RootDirectory}");
         builder.AppendLine($"ConfigPath: {InstallPaths.ConfigPath}");
+        builder.AppendLine($"ConfigBackupPath: {InstallPaths.ConfigBackupPath}");
+        builder.AppendLine($"ConfigBackupExists: {File.Exists(InstallPaths.ConfigBackupPath)}");
         builder.AppendLine($"PendingAutoLogonMarker: {File.Exists(InstallPaths.PendingAutoLogonMarkerPath)}");
         builder.AppendLine($"ConfigProfilesTotal: {config.Profiles.Count}");
         builder.AppendLine($"ConfigProfilesEnabled: {enabledProfiles.Count}");
