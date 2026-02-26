@@ -32,6 +32,11 @@ It is not native Fast User Switching.
 
 The app manifest requires administrator rights, so Windows will show UAC.
 
+Test project included:
+
+- `src/InstantLoginSwitcher.Core.Tests`
+- Run from Visual Studio Test Explorer or `dotnet test` on Windows.
+
 ## How To Configure
 
 1. Launch `InstantLoginSwitcher.App`.

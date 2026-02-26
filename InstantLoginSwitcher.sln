@@ -6,6 +6,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "InstantLoginSwitcher.Core",
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "InstantLoginSwitcher.App", "src\InstantLoginSwitcher.App\InstantLoginSwitcher.App.csproj", "{B9E3168D-0C57-4A42-B437-FBE29D53C965}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "InstantLoginSwitcher.Core.Tests", "src\InstantLoginSwitcher.Core.Tests\InstantLoginSwitcher.Core.Tests.csproj", "{E6A90838-3A9F-4BC9-9780-0C7BFA2D17B4}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -20,6 +22,10 @@ Global
 		{B9E3168D-0C57-4A42-B437-FBE29D53C965}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B9E3168D-0C57-4A42-B437-FBE29D53C965}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{B9E3168D-0C57-4A42-B437-FBE29D53C965}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E6A90838-3A9F-4BC9-9780-0C7BFA2D17B4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E6A90838-3A9F-4BC9-9780-0C7BFA2D17B4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E6A90838-3A9F-4BC9-9780-0C7BFA2D17B4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E6A90838-3A9F-4BC9-9780-0C7BFA2D17B4}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
