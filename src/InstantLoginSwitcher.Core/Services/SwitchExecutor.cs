@@ -58,6 +58,7 @@ public sealed class SwitchExecutor
         winlogon.SetValue("AltDefaultUserName", target.UserName, RegistryValueKind.String);
         winlogon.SetValue("AltDefaultDomainName", Environment.MachineName, RegistryValueKind.String);
         winlogon.SetValue("LastUsedUsername", target.Qualified, RegistryValueKind.String);
+        winlogon.SetValue("AutoLogonCount", "1", RegistryValueKind.String);
 
         if (!string.IsNullOrWhiteSpace(target.SidValue))
         {
@@ -68,7 +69,6 @@ public sealed class SwitchExecutor
             TryDeleteValue(winlogon, "AutoLogonSID");
         }
 
-        TryDeleteValue(winlogon, "AutoLogonCount");
     }
 
     public void DisableAutoLogon()

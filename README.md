@@ -89,6 +89,8 @@ If a Windows account password changes:
 3. Re-enter passwords for the users in that profile.
 4. Click `Save And Apply`.
 
+If profile edits are not saved yet, the app now asks you to save first before updating passwords.
+
 ## Unsaved Changes Protection
 
 If you close the app with unsaved profile edits, the app now prompts before closing.
@@ -120,6 +122,7 @@ Use the built-in buttons in the main window:
 
 Runtime files are in `C:\ProgramData\InstantLoginSwitcher`.
 On smaller windows, the action button row is horizontally scrollable.
+Diagnostics now include validation issues such as invalid hotkeys or missing stored passwords.
 
 If a hotkey appears to do nothing:
 
@@ -151,6 +154,7 @@ Runtime logs:
 
 Passwords are encrypted with DPAPI (machine scope) before storage in `config.json`.
 Auto-logon registry values are now treated as one-shot state and are automatically cleared on next app startup after the switch completes.
+In addition, `AutoLogonCount=1` is set during each switch so Windows auto-logon is one-time even if cleanup cannot run.
 
 ## Legacy Scripts
 

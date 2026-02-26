@@ -233,6 +233,17 @@ public partial class MainWindow : Window
 
     private void UpdatePasswordsForSelectedProfile_Click(object sender, RoutedEventArgs e)
     {
+        if (_hasUnsavedChanges || _hasDraftChanges)
+        {
+            MessageBox.Show(
+                this,
+                "You have unsaved profile edits. Click Save And Apply first, then update passwords.",
+                "InstantLoginSwitcher",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
         if (ProfilesGrid.SelectedItem is not ProfileEditorModel selected)
         {
             MessageBox.Show(this, "Select a profile first.", "InstantLoginSwitcher", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -694,6 +705,7 @@ public partial class MainWindow : Window
     {
         var (isValid, message) = ValidateCurrentForm();
         AddOrUpdateButton.IsEnabled = isValid;
+        AddOrUpdateButton.ToolTip = message;
         FormHintText.Text = message;
         FormHintText.Foreground = isValid
             ? new SolidColorBrush(Color.FromRgb(0x1E, 0x6B, 0x24))
@@ -885,6 +897,9 @@ public partial class MainWindow : Window
         builder.AppendLine($"ConfigUsersWithCredentials: {config.Users.Count(user => !string.IsNullOrWhiteSpace(user.PasswordEncrypted))}");
         builder.AppendLine($"CurrentUserInEnabledProfiles: {requiredUsers.Any(user => user.Equals(Environment.UserName, StringComparison.OrdinalIgnoreCase))}");
 
+        var validationIssues = GetConfigValidationIssues(config);
+        builder.AppendLine($"ValidationIssues: {validationIssues.Count}");
+
         builder.AppendLine("EnabledProfiles:");
         if (enabledProfiles.Count == 0)
         {
@@ -911,12 +926,63 @@ public partial class MainWindow : Window
             }
         }
 
+        builder.AppendLine("ValidationIssueDetails:");
+        if (validationIssues.Count == 0)
+        {
+            builder.AppendLine("  (none)");
+        }
+        else
+        {
+            foreach (var issue in validationIssues)
+            {
+                builder.AppendLine("  - " + issue);
+            }
+        }
+
         builder.AppendLine("ListenerLogTail:");
         AppendLogTail(builder, InstallPaths.ListenerLogPath);
         builder.AppendLine("SwitchLogTail:");
         AppendLogTail(builder, InstallPaths.SwitchLogPath);
 
         return builder.ToString();
+    }
+
+    private IReadOnlyList<string> GetConfigValidationIssues(SwitcherConfig config)
+    {
+        var issues = new List<string>();
+        var credentialByUser = config.Users
+            .GroupBy(user => user.UserName, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+
+        foreach (var profile in config.Profiles.Where(profile => profile.Enabled))
+        {
+            var profileName = string.IsNullOrWhiteSpace(profile.Name) ? profile.Id.ToString() : profile.Name;
+            try
+            {
+                _hotkeyParser.Parse(profile.Hotkey);
+            }
+            catch (Exception exception)
+            {
+                issues.Add($"Profile '{profileName}' has invalid hotkey '{profile.Hotkey}': {exception.Message}");
+            }
+
+            foreach (var userName in new[] { profile.UserA, profile.UserB })
+            {
+                if (string.IsNullOrWhiteSpace(userName))
+                {
+                    issues.Add($"Profile '{profileName}' has a blank user value.");
+                    continue;
+                }
+
+                if (!credentialByUser.TryGetValue(userName, out var credential) ||
+                    string.IsNullOrWhiteSpace(credential.PasswordEncrypted))
+                {
+                    issues.Add($"Profile '{profileName}' is missing a saved password for '{userName}'.");
+                }
+            }
+        }
+
+        return issues;
     }
 
     private static void AppendLogTail(StringBuilder builder, string path)
