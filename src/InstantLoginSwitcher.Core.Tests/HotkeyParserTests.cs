@@ -30,4 +30,20 @@ public sealed class HotkeyParserTests
 
         Assert.Contains("blank", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public void Parse_RejectsModifierOnlyHotkeys()
+    {
+        var exception = Assert.Throws<InvalidOperationException>(() => _parser.Parse("Ctrl+Alt"));
+
+        Assert.Contains("non-modifier", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Parse_NormalizesBackspaceAlias()
+    {
+        var definition = _parser.Parse("Alt+BS");
+
+        Assert.Equal("Alt+Backspace", definition.CanonicalText);
+    }
 }

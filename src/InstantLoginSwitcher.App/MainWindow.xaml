@@ -84,6 +84,7 @@
                 <Button Height="34" MinWidth="240" Margin="0,0,8,0" Content="Update Passwords For Selected Profile" Click="UpdatePasswordsForSelectedProfile_Click" />
                 <Button Height="34" MinWidth="130" Margin="0,0,8,0" Content="Clear Form" Click="ClearForm_Click" />
                 <Button Height="34" MinWidth="100" Margin="0,0,8,0" Content="Reload" Click="Reload_Click" />
+                <Button Height="34" MinWidth="170" Margin="0,0,8,0" Content="Repair Startup Tasks" Click="RepairStartupTasks_Click" />
                 <Button Height="34" MinWidth="210" Margin="0,0,8,0" Content="Remove All Startup Tasks" Click="RemoveAllTasks_Click" />
             </StackPanel>
             <TextBlock x:Name="StatusText" VerticalAlignment="Center" TextWrapping="Wrap" Foreground="#FF2A4E6E" FontWeight="SemiBold" />

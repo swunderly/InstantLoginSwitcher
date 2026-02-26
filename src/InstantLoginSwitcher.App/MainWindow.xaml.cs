@@ -283,6 +283,38 @@ public partial class MainWindow : Window
         ReloadState();
     }
 
+    private void RepairStartupTasks_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var requiredUsers = _profiles
+                .Where(profile => profile.Enabled)
+                .SelectMany(profile => new[] { profile.UserA, profile.UserB })
+                .Where(user => !string.IsNullOrWhiteSpace(user))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var currentExecutable = Process.GetCurrentProcess().MainModule?.FileName;
+            if (string.IsNullOrWhiteSpace(currentExecutable))
+            {
+                throw new InvalidOperationException("Could not resolve executable path.");
+            }
+
+            _taskSchedulerService.SyncListenerTasks(requiredUsers, currentExecutable);
+            _taskSchedulerService.StartListenerForUser(Environment.UserName);
+            SetStatus("Startup tasks repaired for configured profiles.");
+        }
+        catch (Exception exception)
+        {
+            MessageBox.Show(
+                this,
+                $"Task repair failed: {exception.Message}",
+                "InstantLoginSwitcher",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+    }
+
     private void ClearForm_Click(object sender, RoutedEventArgs e)
     {
         ClearFormInternal();

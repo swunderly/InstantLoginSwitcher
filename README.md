@@ -50,6 +50,13 @@ Test project included:
 
 During save, the app prompts for missing account passwords and validates them.
 
+Hotkey rules:
+
+- 2 to 4 keys.
+- No duplicate key in one hotkey.
+- Must include at least one non-modifier key.
+- Examples: `Ctrl+Alt+S`, `Numpad4+Numpad6`, `Shift+F12`.
+
 ## Three Users Example
 
 If you have users `Alice`, `Bob`, and `Carol`, create multiple profiles:
@@ -86,6 +93,18 @@ If one hotkey maps to multiple valid targets for the current user, the app shows
 Listener mode runs the same executable with:
 
 - `--listener`
+
+If listener startup tasks become broken, use `Repair Startup Tasks` in the app.
+
+## Publish Build
+
+Use the included script:
+
+- `scripts/Publish-VisualStudioApp.ps1`
+
+Example:
+
+- `powershell -ExecutionPolicy Bypass -File .\\scripts\\Publish-VisualStudioApp.ps1 -Configuration Release -Runtime win-x64 -SelfContained`
 
 ## Logs
 

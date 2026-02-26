@@ -4,6 +4,14 @@ namespace InstantLoginSwitcher.Core.Services;
 
 public sealed class HotkeyParser
 {
+    private static readonly HashSet<string> ModifierTokens = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Ctrl", "LCtrl", "RCtrl",
+        "Alt", "LAlt", "RAlt",
+        "Shift", "LShift", "RShift",
+        "LWin", "RWin"
+    };
+
     private static readonly Dictionary<string, string> Aliases = new(StringComparer.OrdinalIgnoreCase)
     {
         ["CONTROL"] = "Ctrl",
@@ -22,6 +30,7 @@ public sealed class HotkeyParser
         ["WINDOWS"] = "LWin",
         ["LWIN"] = "LWin",
         ["RWIN"] = "RWin",
+        ["BS"] = "Backspace",
         ["ESC"] = "Escape",
         ["ESCAPE"] = "Escape",
         ["ENTER"] = "Enter",
@@ -140,6 +149,11 @@ public sealed class HotkeyParser
                 Name = normalized,
                 VirtualKeys = virtualKeys
             });
+        }
+
+        if (tokens.All(token => ModifierTokens.Contains(token.Name)))
+        {
+            throw new InvalidOperationException("Hotkey must include at least one non-modifier key (example: Ctrl+Alt+S).");
         }
 
         return new HotkeyDefinition
