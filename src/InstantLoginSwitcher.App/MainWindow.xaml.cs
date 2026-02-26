@@ -16,6 +16,10 @@ public partial class MainWindow : Window
 {
     private const string AppTitle = "InstantLoginSwitcher";
     private const string DefaultHotkey = "Numpad4+Numpad6";
+    private const int TaskStartConfirmationTimeoutMs = 1800;
+    private const int TaskStartMutexTimeoutMs = 900;
+    private const int DirectStartConfirmationTimeoutMs = 4200;
+    private const int DirectStartMutexTimeoutMs = 1200;
 
     private readonly ConfigService _configService;
     private readonly HotkeyParser _hotkeyParser;
@@ -308,24 +312,24 @@ public partial class MainWindow : Window
 
             var requiredUsers = GetRequiredUsersFromEnabledProfiles(configToSave.Profiles.Where(profile => profile.Enabled));
 
-            var currentExecutable = Process.GetCurrentProcess().MainModule?.FileName;
-            if (string.IsNullOrWhiteSpace(currentExecutable))
-            {
-                throw new InvalidOperationException("Could not resolve application executable path for listener startup task.");
-            }
+            var currentExecutable = GetCurrentExecutablePathOrThrow();
 
             _taskSchedulerService.SyncListenerTasks(requiredUsers, currentExecutable);
             var currentUserIncluded = requiredUsers.Any(user =>
                 user.Equals(Environment.UserName, StringComparison.OrdinalIgnoreCase));
             var currentUserListenerRunning = false;
+            ListenerStartResult? listenerStartResult = null;
             if (requiredUsers.Count == 0)
             {
                 _switchExecutor.DisableAutoLogon();
             }
             else if (currentUserIncluded)
             {
-                _taskSchedulerService.StartListenerForUser(Environment.UserName);
-                currentUserListenerRunning = WaitForListenerMutex(Environment.UserName, timeoutMs: 2500);
+                listenerStartResult = EnsureListenerRunningForUser(
+                    Environment.UserName,
+                    currentExecutable,
+                    tryTaskFirst: true);
+                currentUserListenerRunning = listenerStartResult.RuntimeConfirmed;
             }
 
             _loadedConfig = configToSave;
@@ -338,7 +342,9 @@ public partial class MainWindow : Window
                 ? "Configuration saved. No profiles enabled, startup tasks removed."
                 : currentUserIncluded
                     ? currentUserListenerRunning
-                        ? "Configuration saved, startup tasks updated, and listener is running."
+                        ? listenerStartResult is { TaskStartAttempted: true, DirectStartAttempted: true }
+                            ? "Configuration saved, startup tasks updated, and listener is running (direct fallback used)."
+                            : "Configuration saved, startup tasks updated, and listener is running."
                         : "Configuration saved and startup tasks updated, but listener runtime was not confirmed yet."
                     : "Configuration saved. Current user is not in any enabled profile, so no listener was started for this account.";
             SetStatus(saveStatus);
@@ -347,14 +353,19 @@ public partial class MainWindow : Window
                 currentUserIncluded && !currentUserListenerRunning
                     ? MessageBoxImage.Warning
                     : MessageBoxImage.Information;
+            var listenerErrorSuffix = string.IsNullOrWhiteSpace(listenerStartResult?.ErrorMessage)
+                ? string.Empty
+                : $"\n\nDetails: {listenerStartResult.ErrorMessage}";
             MessageBox.Show(
                 this,
                 requiredUsers.Count == 0
                     ? "Saved successfully. No active profiles remain, and startup tasks were removed."
                     : currentUserIncluded
                         ? currentUserListenerRunning
-                            ? "Saved successfully. Hotkey profiles are now active for configured users."
-                            : "Saved successfully, but listener runtime was not confirmed yet. Click 'Start Listener For Current User' to test immediately."
+                            ? listenerStartResult is { TaskStartAttempted: true, DirectStartAttempted: true }
+                                ? "Saved successfully. Hotkey profiles are active. Scheduled startup did not confirm immediately, so direct listener fallback was used."
+                                : "Saved successfully. Hotkey profiles are now active for configured users."
+                            : "Saved successfully, but listener runtime was not confirmed yet. Use Quick Fix Current User or Start Listener For Current User." + listenerErrorSuffix
                         : "Saved successfully. Startup tasks were updated, but this signed-in account is not part of an enabled profile.",
                 "InstantLoginSwitcher",
                 MessageBoxButton.OK,
@@ -362,15 +373,15 @@ public partial class MainWindow : Window
 
             if (currentUserIncluded && !currentUserListenerRunning)
             {
-                var startNow = MessageBox.Show(
+                var openLog = MessageBox.Show(
                     this,
-                    "Listener runtime was not confirmed yet.\n\nStart listener for current user now?",
+                    "Listener runtime was not confirmed yet.\n\nOpen listener.log now?" + listenerErrorSuffix,
                     "InstantLoginSwitcher",
                     MessageBoxButton.YesNo,
-                    MessageBoxImage.Question);
-                if (startNow == MessageBoxResult.Yes)
+                    MessageBoxImage.Warning);
+                if (openLog == MessageBoxResult.Yes)
                 {
-                    StartListenerForCurrentUser_Click(this, new RoutedEventArgs());
+                    OpenPath(InstallPaths.ListenerLogPath, isLogFile: true);
                 }
             }
         }
@@ -383,10 +394,10 @@ public partial class MainWindow : Window
                 _hasDraftChanges = false;
                 UpdateDirtyUiState();
                 UpdateFileActionState();
-                SetStatus("Configuration saved, but startup task update failed. Use Repair Startup Tasks.");
+                SetStatus("Configuration saved, but startup task update failed. Use Quick Fix Current User or Repair + Check Setup.");
                 MessageBox.Show(
                     this,
-                    $"Configuration was saved, but startup task update failed.\n\n{exception.Message}\n\nUse Repair Startup Tasks to retry.",
+                    $"Configuration was saved, but startup task update failed.\n\n{exception.Message}\n\nUse Quick Fix Current User or Repair + Check Setup to retry.",
                     "InstantLoginSwitcher",
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning);
@@ -488,6 +499,44 @@ public partial class MainWindow : Window
         CheckSetup_Click(sender, e);
     }
 
+    private void QuickFixCurrentUser_Click(object sender, RoutedEventArgs e)
+    {
+        if (_hasUnsavedChanges || _hasDraftChanges)
+        {
+            MessageBox.Show(
+                this,
+                "Quick Fix uses saved config plus current startup/runtime state.\n\nClick Save And Apply first, then run Quick Fix.",
+                "InstantLoginSwitcher",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
+        var confirmation = MessageBox.Show(
+            this,
+            "Run quick fix for current user?\n\nThis will repair startup tasks, start listener for current user, then run setup check.",
+            "InstantLoginSwitcher",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+        if (confirmation != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        SetStatus("Running quick fix for current user...");
+        if (!RunRepairStartupTasksWithDialogs())
+        {
+            return;
+        }
+
+        if (!IsListenerMutexPresentForUser(Environment.UserName))
+        {
+            StartListenerForCurrentUser_Click(sender, new RoutedEventArgs());
+        }
+
+        CheckSetup_Click(sender, new RoutedEventArgs());
+    }
+
     private void StartListenerForCurrentUser_Click(object sender, RoutedEventArgs e)
     {
         try
@@ -521,8 +570,10 @@ public partial class MainWindow : Window
 
             var requiredUsers = GetRequiredUsersFromEnabledProfiles(enabledProfiles);
             var currentUser = Environment.UserName;
+            var currentUserIncluded = requiredUsers.Any(user =>
+                user.Equals(currentUser, StringComparison.OrdinalIgnoreCase));
             var listenerAlreadyRunning = IsListenerMutexPresentForUser(currentUser);
-            if (!requiredUsers.Any(user => user.Equals(currentUser, StringComparison.OrdinalIgnoreCase)))
+            if (!currentUserIncluded)
             {
                 var decision = MessageBox.Show(
                     this,
@@ -548,37 +599,26 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var currentExecutable = Process.GetCurrentProcess().MainModule?.FileName;
-            if (string.IsNullOrWhiteSpace(currentExecutable))
+            var currentExecutable = GetCurrentExecutablePathOrThrow();
+            var startResult = EnsureListenerRunningForUser(
+                currentUser,
+                currentExecutable,
+                tryTaskFirst: currentUserIncluded);
+            if (startResult.StartupConfirmed)
             {
-                throw new InvalidOperationException("Could not resolve executable path.");
-            }
-
-            var listenerLogBaseline = CaptureListenerLogBaseline(InstallPaths.ListenerLogPath);
-            _taskSchedulerService.StartListenerForUser(currentUser);
-
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = currentExecutable,
-                Arguments = "--listener",
-                WorkingDirectory = Path.GetDirectoryName(currentExecutable) ?? Environment.CurrentDirectory,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            });
-
-            var startupConfirmed = WaitForListenerStartupConfirmation(listenerLogBaseline, timeoutMs: 4500);
-            var runtimeConfirmed = startupConfirmed || WaitForListenerMutex(currentUser, timeoutMs: 1200);
-            if (startupConfirmed)
-            {
-                SetStatus("Listener startup confirmed. Test hotkeys now.");
+                SetStatus(startResult is { TaskStartAttempted: true, DirectStartAttempted: true }
+                    ? "Listener startup confirmed after direct fallback."
+                    : "Listener startup confirmed. Test hotkeys now.");
                 MessageBox.Show(
                     this,
-                    "Listener startup confirmed.\n\nIf hotkeys still do nothing, run Check Setup or Save Diagnostics To File.",
+                    startResult is { TaskStartAttempted: true, DirectStartAttempted: true }
+                        ? "Listener startup confirmed after direct fallback.\n\nIf hotkeys still do nothing, run Check Setup or Save Diagnostics To File."
+                        : "Listener startup confirmed.\n\nIf hotkeys still do nothing, run Check Setup or Save Diagnostics To File.",
                     "InstantLoginSwitcher",
                     MessageBoxButton.OK,
                     MessageBoxImage.Information);
             }
-            else if (runtimeConfirmed)
+            else if (startResult.RuntimeConfirmed)
             {
                 SetStatus("Listener appears to be running, but log confirmation was delayed.");
                 MessageBox.Show(
@@ -590,10 +630,13 @@ public partial class MainWindow : Window
             }
             else
             {
-                SetStatus("Listener start requested, but startup confirmation was not detected yet.");
+                var errorSuffix = string.IsNullOrWhiteSpace(startResult.ErrorMessage)
+                    ? string.Empty
+                    : $"\n\nDetails: {startResult.ErrorMessage}";
+                SetStatus("Listener start was attempted, but runtime confirmation was not detected yet.");
                 var openLog = MessageBox.Show(
                     this,
-                    "Listener start was requested, but no startup confirmation was detected in listener.log yet.\n\nOpen listener.log now?",
+                    "Listener start was attempted, but runtime confirmation was not detected yet.\n\nOpen listener.log now?" + errorSuffix,
                     "InstantLoginSwitcher",
                     MessageBoxButton.YesNo,
                     MessageBoxImage.Warning);
@@ -1317,17 +1360,17 @@ public partial class MainWindow : Window
             if (warnings.Any(warning => warning.Contains("startup listener task", StringComparison.OrdinalIgnoreCase)))
             {
                 builder.AppendLine();
-                builder.AppendLine("Tip: Click 'Repair + Check Setup' to fix tasks and verify again.");
+                builder.AppendLine("Tip: Click 'Quick Fix Current User' or 'Repair + Check Setup' to fix tasks and verify again.");
             }
 
             if (warnings.Any(warning => warning.Contains("Current user's startup listener task was not found.", StringComparison.OrdinalIgnoreCase)))
             {
-                builder.AppendLine("Tip: Click 'Start Listener For Current User' to test hotkeys immediately without signing out.");
+                builder.AppendLine("Tip: Click 'Quick Fix Current User' or 'Start Listener For Current User' to test hotkeys immediately.");
             }
 
             if (warnings.Any(warning => warning.Contains("listener process does not appear to be running", StringComparison.OrdinalIgnoreCase)))
             {
-                builder.AppendLine("Tip: Click 'Start Listener For Current User' and retest your hotkey.");
+                builder.AppendLine("Tip: Click 'Quick Fix Current User' and retest your hotkey.");
             }
 
             if (warnings.Any(warning => warning.Contains("Unsaved UI edits are present.", StringComparison.OrdinalIgnoreCase)))
@@ -1598,11 +1641,7 @@ public partial class MainWindow : Window
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        var currentExecutable = Process.GetCurrentProcess().MainModule?.FileName;
-        if (string.IsNullOrWhiteSpace(currentExecutable))
-        {
-            throw new InvalidOperationException("Could not resolve executable path.");
-        }
+        var currentExecutable = GetCurrentExecutablePathOrThrow();
 
         _taskSchedulerService.SyncListenerTasks(requiredUsers, currentExecutable);
         var currentUserIncluded = requiredUsers.Any(user =>
@@ -1616,11 +1655,18 @@ public partial class MainWindow : Window
 
         if (currentUserIncluded)
         {
-            _taskSchedulerService.StartListenerForUser(Environment.UserName);
-            var listenerRunning = WaitForListenerMutex(Environment.UserName, timeoutMs: 2500);
-            SetStatus(listenerRunning
-                ? "Startup tasks repaired for configured profiles."
-                : "Startup tasks repaired, but listener runtime was not confirmed yet. Click 'Start Listener For Current User'.");
+            var listenerStartResult = EnsureListenerRunningForUser(
+                Environment.UserName,
+                currentExecutable,
+                tryTaskFirst: true);
+            var repairFailureHint = string.IsNullOrWhiteSpace(listenerStartResult.ErrorMessage)
+                ? string.Empty
+                : $" Details: {listenerStartResult.ErrorMessage}";
+            SetStatus(listenerStartResult.RuntimeConfirmed
+                ? listenerStartResult is { TaskStartAttempted: true, DirectStartAttempted: true }
+                    ? "Startup tasks repaired and listener is running (direct fallback used)."
+                    : "Startup tasks repaired for configured profiles."
+                : "Startup tasks repaired, but listener runtime was not confirmed yet. Use Quick Fix Current User." + repairFailureHint);
             return true;
         }
 
@@ -1710,6 +1756,96 @@ public partial class MainWindow : Window
 
         InstallPaths.WriteUtf8NoBom(filePath, diagnosticsText + Environment.NewLine);
         return filePath;
+    }
+
+    private static string GetCurrentExecutablePathOrThrow()
+    {
+        var currentExecutable = Process.GetCurrentProcess().MainModule?.FileName;
+        if (string.IsNullOrWhiteSpace(currentExecutable))
+        {
+            throw new InvalidOperationException("Could not resolve application executable path.");
+        }
+
+        return currentExecutable;
+    }
+
+    private ListenerStartResult EnsureListenerRunningForUser(string userName, string executablePath, bool tryTaskFirst)
+    {
+        var result = new ListenerStartResult();
+        if (string.IsNullOrWhiteSpace(userName))
+        {
+            result.ErrorMessage = "User name is required to start listener.";
+            return result;
+        }
+
+        if (string.IsNullOrWhiteSpace(executablePath))
+        {
+            result.ErrorMessage = "Executable path is required to start listener.";
+            return result;
+        }
+
+        if (IsListenerMutexPresentForUser(userName))
+        {
+            result.RuntimeConfirmed = true;
+            return result;
+        }
+
+        if (tryTaskFirst)
+        {
+            result.TaskStartAttempted = true;
+            try
+            {
+                var taskBaseline = CaptureListenerLogBaseline(InstallPaths.ListenerLogPath);
+                _taskSchedulerService.StartListenerForUser(userName);
+                var taskStartupConfirmed = WaitForListenerStartupConfirmation(taskBaseline, timeoutMs: TaskStartConfirmationTimeoutMs);
+                result.StartupConfirmed = taskStartupConfirmed;
+                result.RuntimeConfirmed = taskStartupConfirmed || WaitForListenerMutex(userName, timeoutMs: TaskStartMutexTimeoutMs);
+                if (result.RuntimeConfirmed)
+                {
+                    return result;
+                }
+            }
+            catch (Exception exception)
+            {
+                result.ErrorMessage = "Scheduled start failed: " + exception.Message;
+            }
+        }
+
+        result.DirectStartAttempted = true;
+        try
+        {
+            var directBaseline = CaptureListenerLogBaseline(InstallPaths.ListenerLogPath);
+            StartListenerProcess(executablePath);
+            var directStartupConfirmed = WaitForListenerStartupConfirmation(directBaseline, timeoutMs: DirectStartConfirmationTimeoutMs);
+            result.StartupConfirmed = result.StartupConfirmed || directStartupConfirmed;
+            result.RuntimeConfirmed = directStartupConfirmed || WaitForListenerMutex(userName, timeoutMs: DirectStartMutexTimeoutMs);
+        }
+        catch (Exception exception)
+        {
+            var directStartError = "Direct start failed: " + exception.Message;
+            result.ErrorMessage = string.IsNullOrWhiteSpace(result.ErrorMessage)
+                ? directStartError
+                : result.ErrorMessage + " | " + directStartError;
+        }
+
+        return result;
+    }
+
+    private static void StartListenerProcess(string executablePath)
+    {
+        var started = Process.Start(new ProcessStartInfo
+        {
+            FileName = executablePath,
+            Arguments = "--listener",
+            WorkingDirectory = Path.GetDirectoryName(executablePath) ?? Environment.CurrentDirectory,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        });
+
+        if (started is null)
+        {
+            throw new InvalidOperationException("Listener process did not start.");
+        }
     }
 
     private static ListenerLogBaseline CaptureListenerLogBaseline(string path)
@@ -1848,6 +1984,15 @@ public partial class MainWindow : Window
     private static string GetListenerMutexName(string userName)
     {
         return $@"Local\InstantLoginSwitcher.Listener.{userName}";
+    }
+
+    private sealed class ListenerStartResult
+    {
+        public bool TaskStartAttempted { get; set; }
+        public bool DirectStartAttempted { get; set; }
+        public bool StartupConfirmed { get; set; }
+        public bool RuntimeConfirmed { get; set; }
+        public string ErrorMessage { get; set; } = string.Empty;
     }
 
     private readonly struct ListenerLogBaseline
