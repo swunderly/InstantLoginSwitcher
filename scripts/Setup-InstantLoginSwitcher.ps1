@@ -842,7 +842,6 @@ function Write-ListenerScript {
 $content = @"
 #Requires AutoHotkey v2.0
 #SingleInstance Force
-#InstallKeybdHook
 
 commandsDir := A_ScriptDir . "\commands"
 logPath := A_ScriptDir . "\listener.log"
