@@ -788,7 +788,7 @@ public partial class MainWindow : Window
         try
         {
             var parsed = _hotkeyParser.Parse(raw);
-            if (string.Equals(parsed.CanonicalText, raw, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(parsed.CanonicalText, raw, StringComparison.Ordinal))
             {
                 return;
             }
