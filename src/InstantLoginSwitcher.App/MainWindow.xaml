@@ -37,6 +37,7 @@
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
                 <TextBlock Grid.Row="0" Grid.Column="0" Margin="0,0,8,6" Text="First User" FontWeight="SemiBold" />
@@ -53,6 +54,15 @@
                     <CheckBox x:Name="EnabledCheck" IsChecked="True" Margin="0,0,0,8" Content="Enabled" Checked="ProfileInputCheckedChanged" Unchecked="ProfileInputCheckedChanged" />
                     <Button x:Name="AddOrUpdateButton" MinWidth="180" Height="30" Content="Add Profile" Click="AddOrUpdateProfile_Click" />
                 </StackPanel>
+
+                <TextBlock x:Name="FormHintText"
+                           Grid.Row="2"
+                           Grid.Column="0"
+                           Grid.ColumnSpan="5"
+                           Margin="0,8,0,0"
+                           TextWrapping="Wrap"
+                           Foreground="#FF8A5A00"
+                           FontWeight="SemiBold" />
             </Grid>
         </GroupBox>
 

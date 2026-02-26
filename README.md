@@ -48,6 +48,8 @@ Test project included:
 4. Repeat for additional user pairs/hotkeys.
 5. Click `Save And Apply`.
 
+The profile form now validates as you type. The `Add Profile`/`Update Profile` button stays disabled until the current form input is valid.
+
 During save, the app prompts for missing account passwords and validates them.
 If no enabled profiles remain, save will remove startup tasks and clear auto-logon values.
 The form defaults to `Numpad4+Numpad6` when you clear or reset profile input.

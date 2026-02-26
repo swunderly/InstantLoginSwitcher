@@ -6,11 +6,22 @@ public sealed class SwitchTargetResolver
 {
     public IReadOnlyList<SwitchTarget> ResolveTargets(SwitcherConfig config, string hotkeyCanonical, string currentUser)
     {
+        var hotkeyParser = new HotkeyParser();
         var map = new Dictionary<string, SwitchTarget>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var profile in config.Profiles.Where(profile => profile.Enabled))
         {
-            if (!profile.Hotkey.Equals(hotkeyCanonical, StringComparison.OrdinalIgnoreCase))
+            string parsedProfileHotkey;
+            try
+            {
+                parsedProfileHotkey = hotkeyParser.Parse(profile.Hotkey).CanonicalText;
+            }
+            catch
+            {
+                continue;
+            }
+
+            if (!parsedProfileHotkey.Equals(hotkeyCanonical, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }

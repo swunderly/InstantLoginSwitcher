@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using InstantLoginSwitcher.App.Models;
 using InstantLoginSwitcher.App.Views;
 using InstantLoginSwitcher.Core.Models;
@@ -103,6 +104,7 @@ public partial class MainWindow : Window
 
             _hasUnsavedChanges = false;
             _hasDraftChanges = false;
+            UpdateFormValidationState();
             SetStatus("Configuration loaded.");
         }
         catch (Exception exception)
@@ -449,6 +451,7 @@ public partial class MainWindow : Window
 
         _hasDraftChanges = false;
         AddOrUpdateButton.Content = "Update Profile";
+        UpdateFormValidationState();
         SetStatus("Editing selected profile.");
     }
 
@@ -473,6 +476,11 @@ public partial class MainWindow : Window
             }
 
             var parsedHotkey = _hotkeyParser.Parse(profile.Hotkey);
+            var normalizedUserA = profile.UserA.Trim();
+            var normalizedUserB = profile.UserB.Trim();
+            var normalizedName = string.IsNullOrWhiteSpace(profile.Name)
+                ? $"{normalizedUserA} <-> {normalizedUserB}"
+                : profile.Name.Trim();
             var orderedUsers = new[] { profile.UserA.Trim(), profile.UserB.Trim() }
                 .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
@@ -486,9 +494,9 @@ public partial class MainWindow : Window
             profileList.Add(new SwitchProfile
             {
                 Id = profile.Id == Guid.Empty ? Guid.NewGuid() : profile.Id,
-                Name = profile.Name.Trim(),
-                UserA = profile.UserA.Trim(),
-                UserB = profile.UserB.Trim(),
+                Name = normalizedName,
+                UserA = normalizedUserA,
+                UserB = normalizedUserB,
                 Hotkey = parsedHotkey.CanonicalText,
                 Enabled = profile.Enabled
             });
@@ -597,6 +605,7 @@ public partial class MainWindow : Window
         });
 
         _hasDraftChanges = false;
+        UpdateFormValidationState();
     }
 
     private void RefreshProfileGrid()
@@ -663,9 +672,56 @@ public partial class MainWindow : Window
         }
 
         _hasDraftChanges = true;
+        UpdateFormValidationState();
         if (!_hasUnsavedChanges)
         {
             SetStatus("Form changed. Click Add Profile or Update Profile, then Save And Apply.");
+        }
+    }
+
+    private void UpdateFormValidationState()
+    {
+        var (isValid, message) = ValidateCurrentForm();
+        AddOrUpdateButton.IsEnabled = isValid;
+        FormHintText.Text = message;
+        FormHintText.Foreground = isValid
+            ? new SolidColorBrush(Color.FromRgb(0x1E, 0x6B, 0x24))
+            : new SolidColorBrush(Color.FromRgb(0x8A, 0x5A, 0x00));
+    }
+
+    private (bool IsValid, string Message) ValidateCurrentForm()
+    {
+        if (GetSelectedAccount(UserACombo) is null)
+        {
+            return (false, "Choose a first user to build a profile.");
+        }
+
+        if (GetSelectedAccount(UserBCombo) is null)
+        {
+            return (false, "Choose a second user to build a profile.");
+        }
+
+        var firstUser = GetSelectedAccount(UserACombo)!;
+        var secondUser = GetSelectedAccount(UserBCombo)!;
+        if (firstUser.UserName.Equals(secondUser.UserName, StringComparison.OrdinalIgnoreCase))
+        {
+            return (false, "First and second user must be different.");
+        }
+
+        if (string.IsNullOrWhiteSpace(HotkeyBox.Text))
+        {
+            return (false, "Enter a hotkey (example: Ctrl+Alt+S).");
+        }
+
+        try
+        {
+            var parsed = _hotkeyParser.Parse(HotkeyBox.Text);
+            var mode = _editingProfileId.HasValue ? "update" : "add";
+            return (true, $"Ready to {mode}. Hotkey will be saved as: {parsed.CanonicalText}");
+        }
+        catch (Exception exception)
+        {
+            return (false, $"Hotkey issue: {exception.Message}");
         }
     }
 
