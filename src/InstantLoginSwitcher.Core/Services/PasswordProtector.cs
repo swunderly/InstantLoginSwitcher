@@ -5,7 +5,8 @@ namespace InstantLoginSwitcher.Core.Services;
 
 public sealed class PasswordProtector
 {
-    private const string Prefix = "DPAPI:";
+    private const string DpapiPrefix = "DPAPI:";
+    private const string LegacyBase64Prefix = "B64:";
 
     public string Protect(string plainText)
     {
@@ -16,7 +17,7 @@ public sealed class PasswordProtector
 
         var plainBytes = Encoding.UTF8.GetBytes(plainText);
         var protectedBytes = ProtectedData.Protect(plainBytes, optionalEntropy: null, scope: DataProtectionScope.LocalMachine);
-        return Prefix + Convert.ToBase64String(protectedBytes);
+        return DpapiPrefix + Convert.ToBase64String(protectedBytes);
     }
 
     public string Unprotect(string encryptedText)
@@ -26,8 +27,15 @@ public sealed class PasswordProtector
             return string.Empty;
         }
 
-        var payload = encryptedText.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase)
-            ? encryptedText[Prefix.Length..]
+        if (encryptedText.StartsWith(LegacyBase64Prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            var legacyPayload = encryptedText[LegacyBase64Prefix.Length..];
+            var plainBytes = Convert.FromBase64String(legacyPayload);
+            return Encoding.UTF8.GetString(plainBytes);
+        }
+
+        var payload = encryptedText.StartsWith(DpapiPrefix, StringComparison.OrdinalIgnoreCase)
+            ? encryptedText[DpapiPrefix.Length..]
             : encryptedText;
 
         var protectedBytes = Convert.FromBase64String(payload);

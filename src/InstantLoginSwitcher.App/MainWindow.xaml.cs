@@ -855,6 +855,7 @@ public partial class MainWindow : Window
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
 
         var selectedCredentials = new List<StoredUserCredential>();
+        var unreadableCredentialWarningShown = false;
         foreach (var userName in requiredUsers.OrderBy(user => user, StringComparer.OrdinalIgnoreCase))
         {
             if (!accountByUser.TryGetValue(userName, out var account))
@@ -868,8 +869,23 @@ public partial class MainWindow : Window
                 existing.FullName = account.FullName;
                 existing.Qualified = account.Qualified;
                 existing.SidValue = account.SidValue;
-                selectedCredentials.Add(existing);
-                continue;
+                if (TryIsCredentialUsable(existing, out var reason))
+                {
+                    selectedCredentials.Add(existing);
+                    continue;
+                }
+
+                if (!unreadableCredentialWarningShown)
+                {
+                    var readableReason = string.IsNullOrWhiteSpace(reason) ? "unknown reason" : reason;
+                    MessageBox.Show(
+                        this,
+                        $"Saved password data could not be read for '{userName}' ({readableReason}).\n\nYou will be prompted to re-enter affected passwords now.",
+                        "InstantLoginSwitcher",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+                    unreadableCredentialWarningShown = true;
+                }
             }
 
             selectedCredentials.Add(CreateCredentialFromPrompt(account));

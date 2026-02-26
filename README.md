@@ -160,6 +160,7 @@ Listener startup confirmation now checks newly written log content, reducing sta
 `Check Setup` now also flags when the current user should have listener coverage but the listener process is not currently running.
 `Check Setup` now flags when current user is in enabled profiles but has no valid hotkey routes.
 `Check Setup` now flags unreadable/corrupt saved password entries and duplicate credential entries.
+`Save And Apply` now automatically re-prompts for any unreadable saved password entries instead of silently keeping broken credentials.
 
 Runtime files are in `C:\ProgramData\InstantLoginSwitcher`.
 On smaller windows, the action button row is horizontally scrollable.
@@ -219,6 +220,7 @@ Advanced override:
 ## Security
 
 Passwords are encrypted with DPAPI (machine scope) before storage in `config.json`.
+Legacy `B64:` password entries from older script-based installs are still readable and are rewritten in DPAPI format on next save.
 Auto-logon registry values are now treated as one-shot state and are automatically cleared on next app startup after the switch completes.
 In addition, `AutoLogonCount=1` is set during each switch so Windows auto-logon is one-time even if cleanup cannot run.
 
