@@ -696,6 +696,7 @@ try {
 
     $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
     $currentUser = [System.Environment]::UserName
+    Write-Log ("START hotkey id '{0}' current user '{1}'." -f $hotkeyId, $currentUser)
 
     $profiles = @($config.Profiles | Where-Object { [string]$_.HotkeyId -eq $hotkeyId })
     if ($profiles.Count -eq 0) {
@@ -797,7 +798,12 @@ try {
 }
 catch {
     Write-Log ('ERROR: ' + $_.Exception.Message)
+    if ($_.ScriptStackTrace) {
+        Write-Log ('STACK: ' + $_.ScriptStackTrace)
+    }
+    exit 1
 }
+exit 0
 '@
 
     return $template.Replace('__CONFIG_PATH__', $configLiteral).Replace('__HOTKEY_ID__', $hotkeyLiteral)
@@ -850,7 +856,7 @@ $commandBlock
 )
 
 WriteLog("Listener started. combos=" . combos.Length)
-SetTimer(CheckCombos, 35)
+SetTimer(CheckCombos, 15)
 
 CheckCombos(*) {
     global combos
@@ -974,10 +980,24 @@ RunSwitch(hotkeyId) {
     WriteLog("Triggering switch for " . hotkeyId)
 
     psExe := A_WinDir . "\System32\WindowsPowerShell\v1.0\powershell.exe"
-    command := '"' . psExe . '" -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -STA -File "' . scriptPath . '"'
+    safePath := StrReplace(scriptPath, "'", "''")
+    psCode := "$ErrorActionPreference='Stop'; $scriptPath='" . safePath . "'; $scriptText=Get-Content -LiteralPath $scriptPath -Raw; & ([System.Management.Automation.ScriptBlock]::Create($scriptText))"
+    inlineCommand := '"' . psExe . '" -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -STA -Command "' . psCode . '"'
+    fileCommand := '"' . psExe . '" -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -STA -File "' . scriptPath . '"'
 
     try {
-        Run(command, , "Hide")
+        exitCode := RunWait(inlineCommand, , "Hide")
+        WriteLog("Inline PowerShell exit code " . exitCode . " for " . hotkeyId)
+
+        if (exitCode != 0) {
+            WriteLog("Inline execution failed for " . hotkeyId . "; retrying with -File")
+            exitCode := RunWait(fileCommand, , "Hide")
+            WriteLog("File PowerShell exit code " . exitCode . " for " . hotkeyId)
+        }
+
+        if (exitCode != 0) {
+            ResetSwitchGuard()
+        }
     }
     catch as err {
         WriteLog("Run failed for " . hotkeyId . ": " . err.Message)

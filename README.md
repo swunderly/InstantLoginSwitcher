@@ -62,6 +62,7 @@ Uninstall removes:
 - `C:\ProgramData\InstantLoginSwitcher\config.json`
 - `C:\ProgramData\InstantLoginSwitcher\InstantLoginSwitcher.ahk`
 - `C:\ProgramData\InstantLoginSwitcher\commands\*.ps1`
+- `C:\ProgramData\InstantLoginSwitcher\listener.log`
 - `C:\ProgramData\InstantLoginSwitcher\switch.log`
 
 ## Troubleshooting
@@ -78,6 +79,7 @@ Uninstall removes:
   - If using numpad keys, test with NumLock both on and off.
   - Check listener log:
     - `C:\ProgramData\InstantLoginSwitcher\listener.log`
+    - Confirm lines like `Triggering switch for HK...` and `Inline PowerShell exit code ...`.
   - Check switch log:
     - `C:\ProgramData\InstantLoginSwitcher\switch.log`
 - Password validation fails:
