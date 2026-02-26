@@ -1184,6 +1184,10 @@ public partial class MainWindow : Window
         var hasSelection = ProfilesGrid.SelectedItem is ProfileEditorModel;
         RemoveSelectedButton.IsEnabled = hasSelection;
         UpdatePasswordsButton.IsEnabled = hasSelection;
+        RemoveSelectedButton.ToolTip = hasSelection ? "Remove the selected profile." : "Select a profile row first.";
+        UpdatePasswordsButton.ToolTip = hasSelection
+            ? "Re-enter passwords for both users in the selected profile."
+            : "Select a profile row first.";
     }
 
     private void RunWithoutDirtyTracking(Action action)

@@ -55,6 +55,7 @@ Tip: press `Esc` while focused in profile inputs to clear the form quickly.
 Tip: if your PC has exactly two enabled admin accounts, selecting one user auto-fills the other box.
 Hotkeys are normalized automatically when the hotkey field loses focus.
 Profile-only actions (`Remove Selected Hotkey`, `Update Passwords`) stay disabled until you select a profile row.
+When disabled, those buttons now show a tooltip explaining what is needed.
 
 During save, the app prompts for missing account passwords and validates them.
 If no enabled profiles remain, save will remove startup tasks and clear auto-logon values.
