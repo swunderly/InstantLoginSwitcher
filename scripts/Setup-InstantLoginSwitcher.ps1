@@ -1365,9 +1365,12 @@ foreach ($userName in ($selectedAccounts.Keys | Sort-Object)) {
 $userRecordsArray = @($userRecords)
 $profilesArray = @($profiles)
 $hotkeysArray = @($hotkeys)
+$listenerLogPath = Join-Path $installDir 'listener.log'
+$switchLogPath = Join-Path $installDir 'switch.log'
 
 New-Item -Path $installDir -ItemType Directory -Force | Out-Null
 New-Item -Path $commandsDir -ItemType Directory -Force | Out-Null
+Remove-Item -LiteralPath @($listenerLogPath, $switchLogPath) -Force -ErrorAction SilentlyContinue
 
 Get-ChildItem -LiteralPath $commandsDir -File -ErrorAction SilentlyContinue |
     Where-Object { $_.Extension -in @('.b64', '.ps1') } |
@@ -1415,35 +1418,64 @@ foreach ($taskName in $staleTaskNames | Select-Object -Unique) {
     Remove-TaskIfExists -TaskName $taskName
 }
 
-$registeredTaskNames = @()
+$registeredTasks = @()
 foreach ($userRecord in $userRecordsArray) {
     $taskName = New-ListenerTaskName -SidValue ([string]$userRecord.SidValue) -UserName ([string]$userRecord.UserName)
     Register-ListenerTask -TaskName $taskName -AutoHotkeyExe $ahkExe -ListenerScriptPath $listenerScriptPath -UserId ([string]$userRecord.Qualified)
-    $registeredTaskNames += $taskName
-}
-
-foreach ($taskName in $registeredTaskNames) {
-    try {
-        Start-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-    }
-    catch {
+    $registeredTasks += [pscustomobject]@{
+        TaskName = $taskName
+        UserName = [string]$userRecord.UserName
     }
 }
 
 $currentUserName = [System.Environment]::UserName
 $currentUserConfigured = $userRecordsArray | Where-Object { [string]$_.UserName -ieq $currentUserName } | Select-Object -First 1
 if ($currentUserConfigured) {
-    try {
-        Start-Process -FilePath $ahkExe -ArgumentList ('"{0}"' -f $listenerScriptPath) -WindowStyle Hidden | Out-Null
-        Write-Host "Listener startup attempted for current user: $currentUserName"
-    }
-    catch {
-        Write-Host "Could not start listener process directly for current user: $($_.Exception.Message)" -ForegroundColor Yellow
+    $currentTask = $registeredTasks | Where-Object { [string]$_.UserName -ieq $currentUserName } | Select-Object -First 1
+    if ($currentTask) {
+        try {
+            Start-ScheduledTask -TaskName ([string]$currentTask.TaskName) -ErrorAction SilentlyContinue
+        }
+        catch {
+        }
     }
 
-    Start-Sleep -Milliseconds 900
-    if (-not (Test-ListenerProcessRunning -ScriptPath $listenerScriptPath)) {
+    $listenerRunning = $false
+    for ($attempt = 1; $attempt -le 6; $attempt++) {
+        Start-Sleep -Milliseconds 250
+        if (Test-ListenerProcessRunning -ScriptPath $listenerScriptPath) {
+            $listenerRunning = $true
+            break
+        }
+    }
+
+    if (-not $listenerRunning) {
+        try {
+            Start-Process -FilePath $ahkExe -ArgumentList ('"{0}"' -f $listenerScriptPath) -WindowStyle Hidden | Out-Null
+            Write-Host "Listener startup attempted directly for current user: $currentUserName"
+        }
+        catch {
+            Write-Host "Could not start listener process directly for current user: $($_.Exception.Message)" -ForegroundColor Yellow
+        }
+
+        Start-Sleep -Milliseconds 900
+        $listenerRunning = Test-ListenerProcessRunning -ScriptPath $listenerScriptPath
+    }
+    else {
+        Write-Host "Listener startup confirmed from scheduled task for current user: $currentUserName"
+    }
+
+    if (-not $listenerRunning) {
         throw "Listener process failed to start for current user '$currentUserName'. Confirm AutoHotkey v2 is installed and not blocked by security policy."
+    }
+
+    $listenerTail = @()
+    if (Test-Path -LiteralPath $listenerLogPath) {
+        $listenerTail = @(Get-Content -LiteralPath $listenerLogPath -Tail 80 -ErrorAction SilentlyContinue)
+    }
+
+    if (-not ($listenerTail | Select-String -SimpleMatch 'Listener started. combos=' -Quiet)) {
+        Write-Host 'Listener did not write startup confirmation to listener.log yet.' -ForegroundColor Yellow
     }
 }
 else {
@@ -1458,6 +1490,6 @@ foreach ($profile in $profilesArray) {
 
 Write-Host ''
 Write-Host 'InstantLoginSwitcher installed.'
-Write-Host ("Listener log: {0}" -f (Join-Path $installDir 'listener.log'))
-Write-Host ("Switch log:   {0}" -f (Join-Path $installDir 'switch.log'))
+Write-Host ("Listener log: {0}" -f $listenerLogPath)
+Write-Host ("Switch log:   {0}" -f $switchLogPath)
 Write-Host 'Sign out and sign back in once, then test the configured hotkeys.'
