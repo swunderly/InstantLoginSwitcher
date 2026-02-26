@@ -117,6 +117,7 @@ If one hotkey maps to multiple valid targets for the current user, the app shows
 `Save And Apply` automatically updates per-user startup tasks so listener mode starts at logon.
 If your signed-in account is not part of any enabled profile, the app now tells you and does not attempt to start a listener for that account.
 When current user is in enabled profiles, `Save And Apply` and `Repair Startup Tasks` now attempt to confirm listener runtime and show a warning if not confirmed.
+If runtime is not confirmed right after save, the app now offers to start listener immediately for the current user.
 
 Listener mode runs the same executable with:
 
@@ -145,6 +146,7 @@ Use the built-in buttons in the main window:
 - `Save Diagnostics To File` (writes a timestamped diagnostics text file into `C:\ProgramData\InstantLoginSwitcher`)
 
 `Start Listener For Current User` now waits briefly for startup confirmation in `listener.log` and warns if confirmation is not detected.
+Listener startup confirmation now checks newly written log content, reducing stale false positives from older log entries.
 `Check Setup` warns when unsaved UI edits are present because it validates the saved config on disk.
 `Check Setup` now also flags when the current user should have listener coverage but the listener process is not currently running.
 

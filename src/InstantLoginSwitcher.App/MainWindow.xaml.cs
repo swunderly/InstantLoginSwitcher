@@ -359,6 +359,20 @@ public partial class MainWindow : Window
                 "InstantLoginSwitcher",
                 MessageBoxButton.OK,
                 messageImage);
+
+            if (currentUserIncluded && !currentUserListenerRunning)
+            {
+                var startNow = MessageBox.Show(
+                    this,
+                    "Listener runtime was not confirmed yet.\n\nStart listener for current user now?",
+                    "InstantLoginSwitcher",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Question);
+                if (startNow == MessageBoxResult.Yes)
+                {
+                    StartListenerForCurrentUser_Click(this, new RoutedEventArgs());
+                }
+            }
         }
         catch (Exception exception)
         {
@@ -1763,20 +1777,27 @@ public partial class MainWindow : Window
                 return false;
             }
 
-            const int tailSize = 120;
-            var tail = new Queue<string>(tailSize);
-            foreach (var line in File.ReadLines(InstallPaths.ListenerLogPath))
-            {
-                if (tail.Count == tailSize)
-                {
-                    tail.Dequeue();
-                }
+            using var stream = new FileStream(
+                InstallPaths.ListenerLogPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
 
-                tail.Enqueue(line);
+            var startOffset = 0L;
+            if (baseline.FileSizeBytes >= 0 && baseline.FileSizeBytes <= stream.Length)
+            {
+                startOffset = baseline.FileSizeBytes;
             }
 
-            return tail.Any(line =>
-                line.Contains("Listener started. combos=", StringComparison.OrdinalIgnoreCase));
+            stream.Seek(startOffset, SeekOrigin.Begin);
+            using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+            var appendedText = reader.ReadToEnd();
+            if (string.IsNullOrWhiteSpace(appendedText) && startOffset > 0)
+            {
+                return false;
+            }
+
+            return appendedText.Contains("Listener started. combos=", StringComparison.OrdinalIgnoreCase);
         }
         catch
         {
