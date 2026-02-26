@@ -851,8 +851,12 @@ public partial class MainWindow : Window
             .ToList();
 
         var existingCredentials = _loadedConfig.Users
-            .GroupBy(user => user.UserName, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+            .Where(user => !string.IsNullOrWhiteSpace(user.UserName))
+            .GroupBy(user => user.UserName.Trim(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => SelectBestExistingCredential(group),
+                StringComparer.OrdinalIgnoreCase);
 
         var selectedCredentials = new List<StoredUserCredential>();
         var unreadableCredentialWarningShown = false;
@@ -941,6 +945,28 @@ public partial class MainWindow : Window
             PasswordEncrypted = _passwordProtector.Protect(password),
             PicturePath = _accountPictureService.GetPicturePath(account)
         };
+    }
+
+    private StoredUserCredential SelectBestExistingCredential(IEnumerable<StoredUserCredential> credentials)
+    {
+        var candidates = credentials
+            .Where(credential => credential is not null)
+            .ToList();
+        if (candidates.Count == 0)
+        {
+            throw new InvalidOperationException("No credential candidates were provided.");
+        }
+
+        foreach (var candidate in candidates)
+        {
+            if (TryIsCredentialUsable(candidate, out _))
+            {
+                return candidate;
+            }
+        }
+
+        return candidates.FirstOrDefault(candidate => !string.IsNullOrWhiteSpace(candidate.PasswordEncrypted))
+               ?? candidates[0];
     }
 
     private LocalAdminAccount? GetSelectedAccount(ComboBox comboBox)

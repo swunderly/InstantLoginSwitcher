@@ -15,19 +15,7 @@ public sealed class SwitchExecutor
 
     public void ExecuteSwitch(SwitcherConfig config, string hotkeyCanonical, string currentUser, string targetUser)
     {
-        var credential = config.Users.FirstOrDefault(user =>
-            user.UserName.Equals(targetUser, StringComparison.OrdinalIgnoreCase));
-
-        if (credential is null)
-        {
-            throw new InvalidOperationException($"No credential is configured for target user '{targetUser}'.");
-        }
-
-        var password = _passwordProtector.Unprotect(credential.PasswordEncrypted);
-        if (string.IsNullOrWhiteSpace(password))
-        {
-            throw new InvalidOperationException($"Credential for '{targetUser}' is empty or invalid.");
-        }
+        var (credential, password) = ResolveUsableCredential(config, targetUser);
 
         ConfigureWinlogon(credential, password);
         MarkPendingAutoLogonCleanup(targetUser, currentUser, hotkeyCanonical);
@@ -37,6 +25,49 @@ public sealed class SwitchExecutor
             $"Prepared auto sign-in for '{targetUser}' (triggered by '{currentUser}', hotkey '{hotkeyCanonical}').");
 
         StartLogoff();
+    }
+
+    private (StoredUserCredential Credential, string Password) ResolveUsableCredential(SwitcherConfig config, string targetUser)
+    {
+        var candidates = config.Users
+            .Where(user => user.UserName.Equals(targetUser, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (candidates.Count == 0)
+        {
+            throw new InvalidOperationException($"No credential is configured for target user '{targetUser}'.");
+        }
+
+        var failures = new List<string>();
+        foreach (var candidate in candidates)
+        {
+            if (string.IsNullOrWhiteSpace(candidate.PasswordEncrypted))
+            {
+                failures.Add("empty encrypted value");
+                continue;
+            }
+
+            try
+            {
+                var password = _passwordProtector.Unprotect(candidate.PasswordEncrypted);
+                if (string.IsNullOrWhiteSpace(password))
+                {
+                    failures.Add("blank decrypted value");
+                    continue;
+                }
+
+                return (candidate, password);
+            }
+            catch (Exception exception)
+            {
+                failures.Add("decrypt failed: " + ToSingleLine(exception.Message, maxLength: 120));
+            }
+        }
+
+        var failureSuffix = failures.Count == 0
+            ? string.Empty
+            : $" Details: {string.Join(" | ", failures.Take(3))}";
+        throw new InvalidOperationException(
+            $"No usable credential was found for '{targetUser}'. Re-enter passwords for this profile and save again.{failureSuffix}");
     }
 
     private static void ConfigureWinlogon(StoredUserCredential target, string password)
@@ -154,5 +185,19 @@ public sealed class SwitchExecutor
         {
             // Best effort cleanup only.
         }
+    }
+
+    private static string ToSingleLine(string? text, int maxLength)
+    {
+        var normalized = (text ?? string.Empty)
+            .Replace("\r", " ", StringComparison.Ordinal)
+            .Replace("\n", " ", StringComparison.Ordinal)
+            .Trim();
+        if (normalized.Length <= maxLength || maxLength <= 3)
+        {
+            return normalized;
+        }
+
+        return normalized[..(maxLength - 3)] + "...";
     }
 }

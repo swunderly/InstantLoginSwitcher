@@ -161,6 +161,7 @@ Listener startup confirmation now checks newly written log content, reducing sta
 `Check Setup` now flags when current user is in enabled profiles but has no valid hotkey routes.
 `Check Setup` now flags unreadable/corrupt saved password entries and duplicate credential entries.
 `Save And Apply` now automatically re-prompts for any unreadable saved password entries instead of silently keeping broken credentials.
+At switch time, if duplicate credential entries exist for a user, the app now uses the first readable one and reports failures more clearly.
 
 Runtime files are in `C:\ProgramData\InstantLoginSwitcher`.
 On smaller windows, the action button row is horizontally scrollable.
