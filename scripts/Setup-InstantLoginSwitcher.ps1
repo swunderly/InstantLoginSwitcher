@@ -842,6 +842,7 @@ function Write-ListenerScript {
 $content = @"
 #Requires AutoHotkey v2.0
 #SingleInstance Force
+#InstallKeybdHook
 
 commandsDir := A_ScriptDir . "\commands"
 logPath := A_ScriptDir . "\listener.log"
@@ -855,8 +856,39 @@ commandMap := Map(
 $commandBlock
 )
 
+ValidateCombos()
 WriteLog("Listener started. combos=" . combos.Length)
 SetTimer(CheckCombos, 15)
+
+ValidateCombos() {
+    global combos
+
+    valid := Array()
+    for combo in combos {
+        invalid := false
+        for keyName in combo["keys"] {
+            if (GetKeyVK(keyName) = 0) && (GetKeySC(keyName) = 0) {
+                WriteLog("Invalid key '" . keyName . "' for combo " . combo["id"] . "; skipping combo")
+                invalid := true
+                break
+            }
+        }
+
+        if !invalid {
+            keyText := ""
+            for idx, keyName in combo["keys"] {
+                if (idx > 1) {
+                    keyText .= "+"
+                }
+                keyText .= keyName
+            }
+            WriteLog("Loaded combo " . combo["id"] . " => " . keyText)
+            valid.Push(combo)
+        }
+    }
+
+    combos := valid
+}
 
 CheckCombos(*) {
     global combos
