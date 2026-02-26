@@ -16,10 +16,17 @@ public partial class App : Application
     private readonly LocalAccountService _localAccountService = new();
     private readonly AccountPictureService _accountPictureService = new();
     private readonly TaskSchedulerService _taskSchedulerService = new();
+    private readonly SwitchExecutor _switchExecutor;
+
+    public App()
+    {
+        _switchExecutor = new SwitchExecutor(_passwordProtector);
+    }
 
     private void OnStartup(object sender, StartupEventArgs eventArgs)
     {
         InstallPaths.EnsureRootDirectory();
+        _switchExecutor.TryClearPendingAutoLogon();
 
         if (eventArgs.Args.Any(arg => arg.Equals("--listener", StringComparison.OrdinalIgnoreCase)))
         {
@@ -37,7 +44,7 @@ public partial class App : Application
             _localAccountService,
             _accountPictureService,
             _taskSchedulerService,
-            new SwitchExecutor(_passwordProtector));
+            _switchExecutor);
 
         MainWindow = window;
         window.Show();
@@ -81,7 +88,7 @@ public partial class App : Application
                 _configService,
                 _hotkeyParser,
                 new SwitchTargetResolver(),
-                new SwitchExecutor(_passwordProtector));
+                _switchExecutor);
 
             _listenerRuntime.Start();
         }

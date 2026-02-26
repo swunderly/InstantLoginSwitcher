@@ -16,6 +16,14 @@ public sealed class HotkeyParserTests
     }
 
     [Fact]
+    public void Parse_CanonicalizesTokenOrder()
+    {
+        var definition = _parser.Parse("Alt+Ctrl+S");
+
+        Assert.Equal("Ctrl+Alt+S", definition.CanonicalText);
+    }
+
+    [Fact]
     public void Parse_RejectsDuplicateTokens()
     {
         var exception = Assert.Throws<InvalidOperationException>(() => _parser.Parse("Ctrl+Ctrl+S"));
@@ -45,5 +53,13 @@ public sealed class HotkeyParserTests
         var definition = _parser.Parse("Alt+BS");
 
         Assert.Equal("Alt+Backspace", definition.CanonicalText);
+    }
+
+    [Fact]
+    public void Parse_RejectsOverlappingTokenVirtualKeys()
+    {
+        var exception = Assert.Throws<InvalidOperationException>(() => _parser.Parse("Delete+NumpadDot"));
+
+        Assert.Contains("overlaps", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 }

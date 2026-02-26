@@ -130,6 +130,7 @@ public sealed class HotkeyParser
         }
 
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var usedVirtualKeys = new HashSet<int>();
         var tokens = new List<HotkeyToken>();
         foreach (var rawPart in parts)
         {
@@ -144,6 +145,16 @@ public sealed class HotkeyParser
                 throw new InvalidOperationException($"Unsupported hotkey token '{rawPart}'.");
             }
 
+            if (virtualKeys.Any(usedVirtualKeys.Contains))
+            {
+                throw new InvalidOperationException($"Hotkey token '{normalized}' overlaps another token in this hotkey.");
+            }
+
+            foreach (var key in virtualKeys)
+            {
+                usedVirtualKeys.Add(key);
+            }
+
             tokens.Add(new HotkeyToken
             {
                 Name = normalized,
@@ -156,11 +167,28 @@ public sealed class HotkeyParser
             throw new InvalidOperationException("Hotkey must include at least one non-modifier key (example: Ctrl+Alt+S).");
         }
 
+        var canonicalTokens = tokens
+            .OrderBy(token => GetTokenOrder(token.Name))
+            .ThenBy(token => token.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
         return new HotkeyDefinition
         {
             SourceText = input,
-            CanonicalText = string.Join('+', tokens.Select(token => token.Name)),
-            Tokens = tokens
+            CanonicalText = string.Join('+', canonicalTokens.Select(token => token.Name)),
+            Tokens = canonicalTokens
+        };
+    }
+
+    private static int GetTokenOrder(string tokenName)
+    {
+        return tokenName switch
+        {
+            "Ctrl" or "LCtrl" or "RCtrl" => 10,
+            "Alt" or "LAlt" or "RAlt" => 20,
+            "Shift" or "LShift" or "RShift" => 30,
+            "LWin" or "RWin" => 40,
+            _ => 100
         };
     }
 

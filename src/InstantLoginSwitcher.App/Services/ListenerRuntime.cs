@@ -102,15 +102,21 @@ public sealed class ListenerRuntime : IDisposable
     {
         var loaded = _configService.Load();
         var nextBindings = new List<ListenerHotkeyBinding>();
+        var seenCanonicals = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var hotkey in loaded.Profiles
                      .Where(profile => profile.Enabled)
-                     .Select(profile => profile.Hotkey)
-                     .Distinct(StringComparer.OrdinalIgnoreCase))
+                     .Select(profile => profile.Hotkey))
         {
             try
             {
                 var definition = _hotkeyParser.Parse(hotkey);
+                if (!seenCanonicals.Add(definition.CanonicalText))
+                {
+                    FileLogger.WriteLine(InstallPaths.ListenerLogPath, $"Duplicate combo ignored: {definition.CanonicalText}");
+                    continue;
+                }
+
                 nextBindings.Add(new ListenerHotkeyBinding
                 {
                     CanonicalHotkey = definition.CanonicalText,

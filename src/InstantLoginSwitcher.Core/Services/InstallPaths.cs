@@ -11,6 +11,7 @@ public static class InstallPaths
     public static string ConfigPath => Path.Combine(RootDirectory, "config.json");
     public static string ListenerLogPath => Path.Combine(RootDirectory, "listener.log");
     public static string SwitchLogPath => Path.Combine(RootDirectory, "switch.log");
+    public static string PendingAutoLogonMarkerPath => Path.Combine(RootDirectory, "pending-autologon-cleanup.flag");
 
     public static void EnsureRootDirectory()
     {
@@ -22,6 +23,12 @@ public static class InstallPaths
         EnsureRootDirectory();
         TryDelete(ListenerLogPath);
         TryDelete(SwitchLogPath);
+    }
+
+    public static void ClearPendingAutoLogonMarker()
+    {
+        EnsureRootDirectory();
+        TryDelete(PendingAutoLogonMarkerPath);
     }
 
     public static void WriteUtf8NoBom(string path, string content)

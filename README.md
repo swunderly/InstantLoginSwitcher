@@ -56,7 +56,9 @@ Hotkey rules:
 
 - 2 to 4 keys.
 - No duplicate key in one hotkey.
+- No overlapping key meanings in one hotkey (example: `Delete+NumpadDot` is rejected).
 - Must include at least one non-modifier key.
+- Key order is normalized automatically (for example `Alt+Ctrl+S` becomes `Ctrl+Alt+S`).
 - Examples: `Ctrl+Alt+S`, `Numpad4+Numpad6`, `Shift+F12`.
 
 ## Three Users Example
@@ -143,6 +145,7 @@ Runtime logs:
 ## Security
 
 Passwords are encrypted with DPAPI (machine scope) before storage in `config.json`.
+Auto-logon registry values are now treated as one-shot state and are automatically cleared on next app startup after the switch completes.
 
 ## Legacy Scripts
 

@@ -30,6 +30,7 @@ public sealed class SwitchExecutor
         }
 
         ConfigureWinlogon(credential, password);
+        MarkPendingAutoLogonCleanup(targetUser, currentUser, hotkeyCanonical);
 
         FileLogger.WriteLine(
             InstallPaths.SwitchLogPath,
@@ -90,6 +91,25 @@ public sealed class SwitchExecutor
         TryDeleteValue(winlogon, "AltDefaultDomainName");
         TryDeleteValue(winlogon, "AutoLogonSID");
         TryDeleteValue(winlogon, "AutoLogonCount");
+        InstallPaths.ClearPendingAutoLogonMarker();
+    }
+
+    public void TryClearPendingAutoLogon()
+    {
+        try
+        {
+            if (!File.Exists(InstallPaths.PendingAutoLogonMarkerPath))
+            {
+                return;
+            }
+
+            DisableAutoLogon();
+            FileLogger.WriteLine(InstallPaths.SwitchLogPath, "Cleared pending auto-logon state after sign-in.");
+        }
+        catch (Exception exception)
+        {
+            FileLogger.WriteLine(InstallPaths.SwitchLogPath, "Auto-logon cleanup failed: " + exception.Message);
+        }
     }
 
     private static void StartLogoff()
@@ -107,6 +127,21 @@ public sealed class SwitchExecutor
         };
 
         process.Start();
+    }
+
+    private static void MarkPendingAutoLogonCleanup(string targetUser, string currentUser, string hotkeyCanonical)
+    {
+        try
+        {
+            InstallPaths.EnsureRootDirectory();
+            var markerText =
+                $"{DateTime.UtcNow:o}|from={currentUser}|to={targetUser}|hotkey={hotkeyCanonical}{Environment.NewLine}";
+            InstallPaths.WriteUtf8NoBom(InstallPaths.PendingAutoLogonMarkerPath, markerText);
+        }
+        catch
+        {
+            // Marker write is best-effort. Missing marker only skips auto cleanup.
+        }
     }
 
     private static void TryDeleteValue(RegistryKey key, string name)
