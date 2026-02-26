@@ -736,7 +736,7 @@ public partial class MainWindow : Window
 
     private void TryAutoFillOppositeUser(object sender)
     {
-        if (_dirtyTrackingSuspendDepth > 0)
+        if (_dirtyTrackingSuspendDepth > 0 || _accountOptions.Count != 2)
         {
             return;
         }
