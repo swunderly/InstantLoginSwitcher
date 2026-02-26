@@ -1001,7 +1001,7 @@ RunSwitch(hotkeyId) {
 
     psExe := A_WinDir . "\System32\WindowsPowerShell\v1.0\powershell.exe"
     safePath := StrReplace(scriptPath, "'", "''")
-    psCode := "$ErrorActionPreference='Stop'; $scriptPath='" . safePath . "'; $scriptText=Get-Content -LiteralPath $scriptPath -Raw; & ([System.Management.Automation.ScriptBlock]::Create($scriptText))"
+    psCode := "`$ErrorActionPreference='Stop'; `$scriptPath='" . safePath . "'; `$scriptText=Get-Content -LiteralPath `$scriptPath -Raw; & ([System.Management.Automation.ScriptBlock]::Create(`$scriptText))"
     inlineCommand := '"' . psExe . '" -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -STA -Command "' . psCode . '"'
     fileCommand := '"' . psExe . '" -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -STA -File "' . scriptPath . '"'
 
